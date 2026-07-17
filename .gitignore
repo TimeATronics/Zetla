@@ -1,0 +1,96 @@
+# Build outputs
+Zetla/app/build/
+Zetla/data/build/
+Zetla/domain/build/
+Zetla/ui/build/
+Zetla/build/
+build/
+deps_build/
+.gradle/
+
+# Kotlin build cache
+Zetla/.kotlin/
+
+# Release APK output
+Zetla/app/release/
+
+# Keystore (secrets - never commit)
+Zetla/app/zetla_release.jks
+
+# IDE
+.idea/
+*.iml
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+env.txt
+
+# C++ build intermediates
+*.o
+*.a
+*.so
+*.dll
+zetla_cli.exe
+
+# Test files
+test_compaction.py
+test_all_features.py
+test_zetla.py
+test_file_handlers.py
+test_file.txt
+test_files/
+tests/
+test_image_uri.txt
+test_image.png
+generate_test_image.py
+
+# Logs
+latest_logs.txt
+live_device_log.txt
+out.txt
+shakespeare.txt
+
+# Dev docs (not part of build)
+PLAN_refactor_and_features.md
+
+# LLM session exports (large generated files)
+session_export.json
+session-ses_*.md
+output*.md
+output*.json
+output_parsed*.md
+export_to_markdown.py
+
+# VCPKG / Windows build artifacts
+vcpkg-triplets/
+zetla - Copy/
+
+# Reference repos (local dev only, not needed for build)
+refs/
+
+# Python build (done separately in WSL, ~30MB total)
+# Provided via scripts/setup.ps1 or manual copy from WSL
+Zetla/app/src/main/assets/python314t.zip
+Zetla/app/src/main/assets/cacert.pem
+Zetla/app/src/main/jniLibs/
+Zetla/data/src/main/assets/python314t.zip
+Zetla/data/src/main/assets/cacert.pem
+
+# Vosk model (~50MB, downloaded via scripts/setup.ps1)
+Zetla/app/src/main/assets/model-en-us/
+TODO.md
+TDD.md
+ZETLA_API_SETUP.md
+docs/PYTHON_ANDROID_BUILD.md
+docs/PYTHON_BUILD_PLAN.md
+zetla_z_icon_refined.svg
+models_list.json
+get_device_logs.bat
+e2b_openapi.yaml
+e2b_docs.md
+DESIGN.md
+ANDROID_DESIGN.md

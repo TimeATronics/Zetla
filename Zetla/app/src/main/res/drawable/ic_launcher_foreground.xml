@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Radial highlight circle behind the Z -->
+    <path android:pathData="M54,54 m-28,0 a28,28 0,1,1 56,0 a28,28 0,1,1 -56,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                xmlns:android="http://schemas.android.com/apk/res/android"
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="54"
+                android:gradientRadius="28"
+                android:startColor="#15FFFFFF"
+                android:endColor="#00FFFFFF" />
+        </aapt:attr>
+    </path>
+    <!-- White Z letter shape -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.95"
+        android:pathData="M38,38 L70,38 L70,42 L52,66 L70,66 L70,70 L38,70 L38,66 L56,42 L38,42 Z" />
+    <!-- Orbit node 1 (larger) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.85"
+        android:pathData="M72,52 A3.5,3.5 0,1,1 72,53 Z" />
+    <!-- Orbit node 2 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.7"
+        android:pathData="M76,60 A2.5,2.5 0,1,1 76,61 Z" />
+    <!-- Orbit node 3 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.7"
+        android:pathData="M74,68 A2,2 0,1,1 74,69 Z" />
+    <!-- Orbit lines -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.35"
+        android:strokeWidth="0.8"
+        android:pathData="M66,46 L72,52" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.25"
+        android:strokeWidth="0.8"
+        android:pathData="M72,52 L76,60" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.25"
+        android:strokeWidth="0.8"
+        android:pathData="M72,52 L74,68" />
+</vector>
