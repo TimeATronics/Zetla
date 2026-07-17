@@ -78,31 +78,32 @@ cli: $(CLI)
 
 # Create output directories
 dirs:
-	@mkdir build\\src\\search 2>nul || exit /b 0
-	@mkdir build\\src\\session 2>nul || exit /b 0
-	@mkdir build\\src\\api 2>nul || exit /b 0
-	@mkdir build\\src\\storage\\local 2>nul || exit /b 0
-	@mkdir build\\src\\file_handlers\\base 2>nul || exit /b 0
-	@mkdir build\\src\\file_handlers\\text 2>nul || exit /b 0
-	@mkdir build\\src\\file_handlers\\image 2>nul || exit /b 0
-	@mkdir build\\src\\file_handlers\\pdf 2>nul || exit /b 0
-	@mkdir build\\src\\file_handlers\\office 2>nul || exit /b 0
-	@mkdir build\\src\\thirdparty\\zip 2>nul || exit /b 0
+	@if not exist "$(OUT)" mkdir "$(OUT)"
+	@if not exist "$(OUT)\\search" mkdir "$(OUT)\\search"
+	@if not exist "$(OUT)\\session" mkdir "$(OUT)\\session"
+	@if not exist "$(OUT)\\api" mkdir "$(OUT)\\api"
+	@if not exist "$(OUT)\\storage\\local" mkdir "$(OUT)\\storage\\local"
+	@if not exist "$(OUT)\\file_handlers\\base" mkdir "$(OUT)\\file_handlers\\base"
+	@if not exist "$(OUT)\\file_handlers\\text" mkdir "$(OUT)\\file_handlers\\text"
+	@if not exist "$(OUT)\\file_handlers\\image" mkdir "$(OUT)\\file_handlers\\image"
+	@if not exist "$(OUT)\\file_handlers\\pdf" mkdir "$(OUT)\\file_handlers\\pdf"
+	@if not exist "$(OUT)\\file_handlers\\office" mkdir "$(OUT)\\file_handlers\\office"
+	@if not exist "$(OUT)\\thirdparty\\zip" mkdir "$(OUT)\\thirdparty\\zip"
 
 # DLL + import library
 $(DLL): $(DLL_OBJS) | dirs
 	$(CXX) -shared -o $@ $(DLL_OBJS) $(LDFLAGS) -Wl,--out-implib,$(DLL_IMPLIB)
 
 # CLI: compiles main_cli.cpp, links against DLL directly
-$(CLI): $(CLI_OBJ) $(DLL)
+$(CLI): $(CLI_OBJ) $(DLL) | dirs
 	$(CXX) -o $@ $(CLI_OBJ) -L$(OUT) -lzetla $(LDFLAGS) -static-libgcc -static-libstdc++
 
 # Generic compile rule (uses VPATH to find sources)
-$(OUT)/%.o: %.cpp
+$(OUT)/%.o: %.cpp | dirs
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # C compile rule for zip.c
-$(OUT)/%.o: %.c
+$(OUT)/%.o: %.c | dirs
 	$(CXX) -std=c11 -I$(SRC) -I$(ZETLA)/thirdparty/zip -c $< -o $@
 
 # Clean
