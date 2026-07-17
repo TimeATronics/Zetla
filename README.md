@@ -114,4 +114,4 @@ Set in `Zetla/ui/src/main/java/com/zetla/app/ZetlaApp.kt` or via the app's setti
 
 ## License
 
-MIT - Copyright 2026 TimeATronics
+MIT - Copyright 2026 Aradhya Chakrabarti

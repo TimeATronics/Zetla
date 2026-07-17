@@ -107,7 +107,7 @@ goto :eof
 :after_curl
 
 REM  Step 4: Copy into Android project 
-set ANDROID_LIBS=%~dp0Zetla\app\src\main\libs
+set ANDROID_LIBS=%~dp0Zetla\data\src\main\libs
 
 call :copy_results arm64-v8a
 call :copy_results armeabi-v7a
@@ -124,6 +124,10 @@ mkdir "%ANDROID_LIBS%\%ABI%\include\openssl" 2>nul
 
 copy /Y "%BUILDDIR%\lib\libcurl.a" "%ANDROID_LIBS%\%ABI%\lib\libcurl.a"
 echo Copied libcurl.a for %ABI%
+
+copy /Y "%SSLDIR%\lib\libssl.a" "%ANDROID_LIBS%\%ABI%\lib\libssl.a"
+copy /Y "%SSLDIR%\lib\libcrypto.a" "%ANDROID_LIBS%\%ABI%\lib\libcrypto.a"
+echo Copied OpenSSL libs for %ABI%
 
 copy /Y "%SSLDIR%\include\openssl\*.h" "%ANDROID_LIBS%\%ABI%\include\openssl\"
 echo Copied OpenSSL headers for %ABI%

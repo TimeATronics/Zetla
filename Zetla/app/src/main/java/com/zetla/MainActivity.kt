@@ -126,7 +126,7 @@ class MainActivity : ComponentActivity() {
                             )
                             Spacer(Modifier.height(48.dp))
                             Text(
-                                text = "Copyright \u00A9 2026 TimeATronics.",
+                                text = "Copyright \u00A9 2026 Aradhya Chakrabarti.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.4f),
                                 textAlign = TextAlign.Center

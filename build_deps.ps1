@@ -93,7 +93,7 @@ foreach ($abi in $ABIS) {
 }
 
 #  Step 5: Copy into Android project 
-$ANDROID_LIBS = "$PSScriptRoot\Zetla\app\src\main\libs"
+$ANDROID_LIBS = "$PSScriptRoot\Zetla\data\src\main\libs"
 
 foreach ($abi in $ABIS) {
     $safeAbi = $abi -replace '-','_'
@@ -108,6 +108,11 @@ foreach ($abi in $ABIS) {
     # Copy libcurl.a
     Copy-Item "$buildDir\lib\libcurl.a" "$destLib\libcurl.a" -Force
     Write-Host "Copied libcurl.a for $abi"
+
+    # Copy OpenSSL .a files
+    Copy-Item "$sslDir\lib\libssl.a" "$destLib\libssl.a" -Force
+    Copy-Item "$sslDir\lib\libcrypto.a" "$destLib\libcrypto.a" -Force
+    Write-Host "Copied OpenSSL libs for $abi"
 
     # Copy OpenSSL headers
     Copy-Item "$sslDir\include\openssl\*.h" $destInc -Force

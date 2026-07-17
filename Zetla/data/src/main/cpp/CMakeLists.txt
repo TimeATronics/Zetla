@@ -10,7 +10,6 @@ if(NOT DEFINED ZETLA_SRC_DIR OR ZETLA_SRC_DIR STREQUAL "")
 endif()
 set(ZETLA_ROOT ${ZETLA_SRC_DIR}/src)
 set(DEPS_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../libs/${ANDROID_ABI})
-set(OPENSSL_LIB_DIR "${ZETLA_SRC_DIR}/deps_build/openssl/${ANDROID_ABI}/lib")
 
 add_library(zetla SHARED
     ${ZETLA_ROOT}/zetla/api/dll_api.cpp
@@ -53,12 +52,12 @@ set_target_properties(curl_static PROPERTIES
 
 add_library(ssl_static STATIC IMPORTED)
 set_target_properties(ssl_static PROPERTIES
-    IMPORTED_LOCATION ${ZETLA_SRC_DIR}/deps_build/openssl/${ANDROID_ABI}/lib/libssl.a
+    IMPORTED_LOCATION ${DEPS_DIR}/lib/libssl.a
 )
 
 add_library(crypto_static STATIC IMPORTED)
 set_target_properties(crypto_static PROPERTIES
-    IMPORTED_LOCATION ${ZETLA_SRC_DIR}/deps_build/openssl/${ANDROID_ABI}/lib/libcrypto.a
+    IMPORTED_LOCATION ${DEPS_DIR}/lib/libcrypto.a
 )
 
 target_link_libraries(zetla
@@ -76,6 +75,6 @@ target_link_options(zetla PRIVATE "-Wl,-z,max-page-size=16384")
 message(STATUS "ZETLA_SRC_DIR: ${ZETLA_SRC_DIR}")
 message(STATUS "ZETLA_ROOT:    ${ZETLA_ROOT}")
 message(STATUS "DEPS_DIR:      ${DEPS_DIR}")
-message(STATUS "curl_static:   ${DEPS_DIR}/lib/libcurl.a")
-message(STATUS "ssl_static:    ${ZETLA_SRC_DIR}/deps_build/openssl/${ANDROID_ABI}/lib/libssl.a")
-message(STATUS "crypto_static: ${ZETLA_SRC_DIR}/deps_build/openssl/${ANDROID_ABI}/lib/libcrypto.a")
+message(STATUS "curl:          ${DEPS_DIR}/lib/libcurl.a")
+message(STATUS "ssl:           ${DEPS_DIR}/lib/libssl.a")
+message(STATUS "crypto:        ${DEPS_DIR}/lib/libcrypto.a")

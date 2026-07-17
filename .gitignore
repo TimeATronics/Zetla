@@ -31,10 +31,11 @@ env.txt
 
 # C++ build intermediates
 *.o
-*.a
 *.so
 *.dll
 zetla_cli.exe
+# Prebuilt static libs for Android (needed for clone-and-build)
+!Zetla/data/src/main/libs/**/lib/*.a
 
 # Test files
 test_compaction.py
