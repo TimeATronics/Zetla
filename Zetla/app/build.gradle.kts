@@ -44,9 +44,28 @@ android {
     buildFeatures {
         compose = true
     }
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = false
+        }
+    }
     packaging {
         jniLibs {
             useLegacyPackaging = true
+        }
+    }
+}
+
+// Map ABI to unique version code for split APKs
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val abi = output.filters.find { it.filterType == "ABI" }?.identifier ?: return@forEach
+            val baseCode = variant.versionCode ?: 1
+            output.versionCode = baseCode * 10 + if (abi == "arm64-v8a") 1 else 2
         }
     }
 }

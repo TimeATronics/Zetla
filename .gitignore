@@ -36,6 +36,8 @@ env.txt
 zetla_cli.exe
 # Prebuilt static libs for Android (needed for clone-and-build)
 !Zetla/data/src/main/libs/**/lib/*.a
+# Python binary for Android (committed, needed for build)
+!Zetla/app/src/main/jniLibs/**/*.so
 
 # Test files
 test_compaction.py
@@ -73,11 +75,8 @@ zetla - Copy/
 # Reference repos (local dev only, not needed for build)
 refs/
 
-# Python build (done separately in WSL, ~30MB total)
-# Provided via scripts/setup.ps1 or manual copy from WSL
-Zetla/app/src/main/assets/python314t.zip
-Zetla/app/src/main/assets/cacert.pem
-Zetla/app/src/main/jniLibs/
+# Python build assets (same for all ABIs, committed from WSL build output)
+# Data module also has a copy (merged at build time)
 Zetla/data/src/main/assets/python314t.zip
 Zetla/data/src/main/assets/cacert.pem
 

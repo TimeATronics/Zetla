@@ -27,29 +27,22 @@ function Fail($msg) { Write-Host "  [FAIL] $msg" -ForegroundColor Red; exit 1 }
 function Build-Python {
     Step "Step 1: Building Python in WSL"
 
-    # Check if already built
-    $pyBin = wsl wslpath -w "$PYTHON_DIST/python" 2>$null
-    $pyStdlib = wsl wslpath -w "$PYTHON_DIST/python314t.zip" 2>$null
-    $pyCacert = wsl wslpath -w "$PYTHON_DIST/cacert.pem" 2>$null
-
-    if ($pyBin -and (Test-Path $pyBin) -and $pyStdlib -and (Test-Path $pyStdlib)) {
-        Ok "Python already built at $PYTHON_DIST"
-        return
+    # Check if at least one ABI has been built
+    $found = $false
+    foreach ($abi in @("arm64-v8a", "armeabi-v7a")) {
+        $bin = wsl wslpath -w "$WSL_BUILD_DIR/dist/$abi/bin/python" 2>$null
+        $stdlib = wsl wslpath -w "$WSL_BUILD_DIR/dist/$abi/bin/python314t.zip" 2>$null
+        if ($bin -and (Test-Path $bin) -and $stdlib -and (Test-Path $stdlib)) {
+            $found = $true
+            break
+        }
     }
+    if ($found) { Ok "Python built in WSL"; return }
 
-    Write-Host "  Python not found at $PYTHON_DIST"
-    Write-Host "  Build it in WSL:"
+    Write-Host "  Python not found. Build both ABIs in WSL:"
     Write-Host ""
-    Write-Host "    wsl -d Ubuntu-26.04 bash -c 'cd $WSL_BUILD_DIR && ./build_all.sh --clean'"
-    Write-Host ""
-    Write-Host "  Or step by step:"
-    Write-Host "    wsl -d Ubuntu-26.04 bash -c 'cd $WSL_BUILD_DIR && ./build_all.sh --step deps'"
-    Write-Host "    wsl -d Ubuntu-26.04 bash -c 'cd $WSL_BUILD_DIR && ./build_all.sh --step cpython'"
-    Write-Host "    wsl -d Ubuntu-26.04 bash -c 'cd $WSL_BUILD_DIR && ./build_all.sh --step package'"
-    Write-Host ""
-    Write-Host "  Then copy the dist folder manually from WSL:"
-    Write-Host "    wsl -d Ubuntu-26.04 bash -c 'cp -r $WSL_BUILD_DIR/dist /mnt/c/Users/Aradhya/zetla_python_dist'"
-    Write-Host "    (Update `$PYTHON_DIST` in this script to point to the copied path)"
+    Write-Host "    wsl -d Ubuntu-26.04 bash -c 'cd $WSL_BUILD_DIR && ./build_all.sh --abi arm64-v8a --clean'"
+    Write-Host "    wsl -d Ubuntu-26.04 bash -c 'cd $WSL_BUILD_DIR && ./build_all.sh --abi armeabi-v7a --clean'"
     Write-Host ""
     Fail "Python build required. Run build_all.sh in WSL first."
 }
@@ -58,47 +51,56 @@ function Build-Python {
 function Copy-And-Build {
     Step "Step 2: Copying artifacts to Android project"
 
-    # Convert WSL paths to Windows
-    $distWin = wsl wslpath -w "$PYTHON_DIST"
+    $ABIS = @("arm64-v8a", "armeabi-v7a")
 
-    # --- Python binary -> jniLibs ---
-    $jniLibs = "$Root\Zetla\app\src\main\jniLibs\arm64-v8a"
-    $pyDst = "$jniLibs\libpython.so"
-    $pySrc = "$distWin\python"
+    # --- Python binary -> jniLibs (per ABI) ---
+    foreach ($abi in $ABIS) {
+        $abiDist = wsl wslpath -w "$WSL_BUILD_DIR/dist/$abi/bin" 2>$null
+        if (-not $abiDist -or -not (Test-Path "$abiDist\python")) {
+            Write-Host "  [WARN] Python binary not found for $abi at $abiDist" -ForegroundColor Yellow
+            Write-Host "  Build it first: wsl bash -c 'cd $WSL_BUILD_DIR && ./build_all.sh --abi $abi --clean'" -ForegroundColor Yellow
+            continue
+        }
 
-    if (-not (Test-Path $pyDst) -or (Get-Item $pySrc).LastWriteTime -gt (Get-Item $pyDst).LastWriteTime) {
-        New-Item -ItemType Directory -Force -Path $jniLibs | Out-Null
-        Copy-Item -Force $pySrc $pyDst
-        Ok "Copied libpython.so"
-    } else {
-        Ok "libpython.so up to date"
+        $jniDir = "$Root\Zetla\app\src\main\jniLibs\$abi"
+        $pyDst = "$jniDir\libpython.so"
+        $pySrc = "$abiDist\python"
+
+        if (-not (Test-Path $pyDst) -or (Get-Item $pySrc).LastWriteTime -gt (Get-Item $pyDst).LastWriteTime) {
+            New-Item -ItemType Directory -Force -Path $jniDir | Out-Null
+            Copy-Item -Force $pySrc $pyDst
+            Ok "Copied libpython.so for $abi"
+        } else {
+            Ok "libpython.so up to date for $abi"
+        }
     }
 
-    # --- Stdlib zip + cacert -> app/assets ---
+    # --- Stdlib zip + cacert -> app/assets (same for all ABIs) ---
     $assets = "$Root\Zetla\app\src\main\assets"
-
-    foreach ($file in @("python314t.zip", "cacert.pem")) {
-        $src = "$distWin\$file"
-        $dst = "$assets\$file"
-        if (-not (Test-Path $dst) -or (Get-Item $src).LastWriteTime -gt (Get-Item $dst).LastWriteTime) {
-            Copy-Item -Force $src $dst
-            Ok "Copied $file to app/assets"
-        } else {
-            Ok "$file up to date in app/assets"
+    $distSrc = wsl wslpath -w "$WSL_BUILD_DIR/dist/arm64-v8a/bin" 2>$null
+    # Fallback: try any ABI's dist
+    if (-not $distSrc -or -not (Test-Path "$distSrc\python3.14t.zip")) {
+        foreach ($abi in $ABIS) {
+            $try = wsl wslpath -w "$WSL_BUILD_DIR/dist/$abi/bin" 2>$null
+            if ($try -and (Test-Path "$try\python3.14t.zip")) { $distSrc = $try; break }
         }
     }
 
-    # --- Stdlib zip + cacert -> data/assets (also needed by data module) ---
-    $dataAssets = "$Root\Zetla\data\src\main\assets"
-    foreach ($file in @("python314t.zip", "cacert.pem")) {
-        $src = "$distWin\$file"
-        $dst = "$dataAssets\$file"
-        if (-not (Test-Path $dst) -or (Get-Item $src).LastWriteTime -gt (Get-Item $dst).LastWriteTime) {
-            Copy-Item -Force $src $dst
-            Ok "Copied $file to data/assets"
-        } else {
-            Ok "$file up to date in data/assets"
+    if ($distSrc -and (Test-Path "$distSrc\python3.14t.zip")) {
+        foreach ($file in @("python314t.zip", "cacert.pem")) {
+            $src = "$distSrc\$file"
+            $dst = "$assets\$file"
+            if (-not (Test-Path $dst) -or (Get-Item $src).LastWriteTime -gt (Get-Item $dst).LastWriteTime) {
+                Copy-Item -Force $src $dst
+                Ok "Copied $file to app/assets"
+            } else {
+                Ok "$file up to date in app/assets"
+            }
         }
+
+
+    } else {
+        Write-Host "  [WARN] Stdlib zip not found. Build Python first." -ForegroundColor Yellow
     }
 
     # --- Vosk model ---
@@ -124,8 +126,8 @@ function Copy-And-Build {
         Ok "Vosk model already present"
     }
 
-    # --- Build APK ---
-    Step "Building release APK"
+    # --- Build split APKs ---
+    Step "Building release APKs (one per ABI)"
     Push-Location "$Root\Zetla"
     try {
         & ".\gradlew.bat" assembleRelease --no-daemon
@@ -134,12 +136,15 @@ function Copy-And-Build {
         Pop-Location
     }
 
-    $apk = "$Root\Zetla\app\build\outputs\apk\release\app-release.apk"
-    if (Test-Path $apk) {
-        $size = [math]::Round((Get-Item $apk).Length / 1MB, 1)
-        Ok "Release APK: $apk ($size MB)"
+    $apkDir = "$Root\Zetla\app\build\outputs\apk\release"
+    $apks = Get-ChildItem "$apkDir\*.apk" | Where-Object { $_.Name -ne "app-release-*.apk" -or $true }
+    if ($apks.Count -gt 0) {
+        foreach ($apk in $apks) {
+            $size = [math]::Round($apk.Length / 1MB, 1)
+            Ok "APK: $($apk.Name) ($size MB)"
+        }
     } else {
-        Fail "APK not found"
+        Fail "No APKs found in $apkDir"
     }
 }
 
