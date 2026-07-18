@@ -27,6 +27,10 @@ interface ConfigRepository {
     fun getVersion(): String
     fun setDarkMode(enabled: Boolean)
     fun isDarkMode(): Boolean
+    fun setColorScheme(scheme: String)
+    fun getColorScheme(): String
+    fun setTtsVoice(voiceName: String)
+    fun getTtsVoice(): String
     fun setSearchProvider(provider: String)
     fun setExaApiKey(apiKey: String)
     fun refreshModelsDevCache(force: Boolean): Boolean

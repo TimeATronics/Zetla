@@ -79,32 +79,18 @@ namespace zetla::providers {
                 bool vision = id.find("vision") != std::string::npos ||
                               id.find("Vision") != std::string::npos ||
                               id.find("multi-modal") != std::string::npos;
-                bool tools = id.find("flash") != std::string::npos ||
-                             id.find("instruct") != std::string::npos;
-                bool reasoning = id.find("reason") != std::string::npos ||
-                                 id.find("Reason") != std::string::npos;
 
                 int ctx = 8192;
-                if (id.find("131072") != std::string::npos || id.find("128k") != std::string::npos) ctx = 131072;
-                else if (id.find("65536") != std::string::npos || id.find("64k") != std::string::npos) ctx = 65536;
-                else if (id.find("32768") != std::string::npos || id.find("32k") != std::string::npos) ctx = 32768;
-                else if (id.find("16384") != std::string::npos || id.find("16k") != std::string::npos) ctx = 16384;
-
-                int max_out = (ctx > 65536) ? 8192 : 4096;
+                int max_out = 4096;
 
                 nlohmann::json caps;
                 caps["supports_vision"] = vision;
-                caps["supports_tools"] = tools;
-                caps["supports_reasoning"] = reasoning;
+                caps["supports_tools"] = true;
+                caps["supports_reasoning"] = true;
                 caps["context_window"] = ctx;
                 caps["max_output_tokens"] = max_out;
-
-                nlohmann::json params = {"temperature", "max_tokens", "top_p"};
-                if (reasoning) {
-                    params.push_back("reasoning_effort");
-                    caps["thinking_levels"] = {"auto", "low", "medium", "high"};
-                }
-                caps["supported_params"] = params;
+                caps["thinking_levels"] = {"auto", "low", "medium", "high"};
+                caps["supported_params"] = {"temperature", "max_tokens", "top_p", "reasoning_effort"};
                 entry["capabilities"] = caps;
                 result.push_back(entry);
             }

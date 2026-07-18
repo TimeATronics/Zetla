@@ -26,7 +26,7 @@ namespace zetla::storage {
         j["created_at_ms"] = session.created_at_ms;
         j["last_active_ms"] = session.last_active_ms;
 
-        std::string json_str = j.dump();
+        std::string json_str = j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 
         uLongf dest_len = compressBound(static_cast<uLong>(json_str.size()));
         out.resize(dest_len);
@@ -67,7 +67,7 @@ namespace zetla::storage {
             out.last_active_ms = j.value("last_active_ms", 0);
 
             if (j.contains("options")) {
-                out.options_json = j["options"].dump();
+                out.options_json = j["options"].dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
             } else {
                 out.options_json = "";
             }

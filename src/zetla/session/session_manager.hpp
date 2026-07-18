@@ -98,6 +98,11 @@ namespace zetla::session {
             const core::ChatOptions& options
         );
 
+        bool set_session_system_prompt(
+            const std::string& session_id,
+            const std::string& system_prompt
+        );
+
         bool set_session_model(
             const std::string& session_id,
             const std::string& model

@@ -12,19 +12,29 @@ import androidx.compose.runtime.remember
 fun ListAutoScrollToBottom(
     threshold: Int = 2,
     listState: LazyListState,
-    contentVersion: Int = 0
+    isStreaming: Boolean
 ) {
     val itemsCount by remember {
         derivedStateOf { listState.layoutInfo.totalItemsCount }
     }
 
-    LaunchedEffect(itemsCount, contentVersion) {
-        if (itemsCount > 0 && !listState.isScrollInProgress) {
+    val shouldAutoScroll by remember {
+        derivedStateOf {
+            if (itemsCount <= 0) return@derivedStateOf false
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            val nearBottom = lastVisible >= itemsCount - 1 - threshold
-            if (nearBottom) {
-                listState.animateScrollToItem(itemsCount - 1)
-            }
+            lastVisible >= itemsCount - 1 - threshold
+        }
+    }
+
+    LaunchedEffect(itemsCount) {
+        if (itemsCount > 0) {
+            listState.scrollToItem(itemsCount - 1)
+        }
+    }
+
+    LaunchedEffect(isStreaming, shouldAutoScroll) {
+        if (isStreaming && shouldAutoScroll) {
+            listState.scrollToItem(itemsCount - 1)
         }
     }
 }

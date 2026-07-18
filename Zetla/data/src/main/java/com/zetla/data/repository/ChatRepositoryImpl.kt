@@ -109,6 +109,33 @@ class ChatRepositoryImpl @Inject constructor() : ChatRepository {
         })
     }
 
+    override suspend fun sendMessageFullWithImages(
+        sessionId: String,
+        message: String,
+        model: String,
+        imageDataUris: Array<String>,
+        onToken: (content: String?, reasoning: String?) -> Unit,
+        onFinished: () -> Unit
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (model.isNotBlank()) {
+            ZetlaCore.nativeSetSessionModel(nativeId(sessionId), model)
+        }
+        var finishedCalled = false
+        ZetlaCore.nativeSendMessageWithImages(nativeId(sessionId), message, imageDataUris, object : StreamCallback {
+            override fun onToken(jsonChunk: String) {
+                val token = parseStreamTokenFull(jsonChunk)
+                if (token != null) {
+                    onToken(token.content, token.reasoning)
+                }
+            }
+            override fun onFinished() {
+                if (finishedCalled) return
+                finishedCalled = true
+                onFinished()
+            }
+        })
+    }
+
     override suspend fun fetchModels(): List<Model> = withContext(Dispatchers.IO) {
         return@withContext try {
             val json = ZetlaCore.nativeListModels()
@@ -377,6 +404,12 @@ class ChatRepositoryImpl @Inject constructor() : ChatRepository {
     override suspend fun setSessionOptions(sessionId: String, optionsJson: String) {
         withContext(Dispatchers.IO) {
             ZetlaCore.nativeSetSessionOptions(nativeId(sessionId), optionsJson)
+        }
+    }
+
+    override suspend fun setSessionSystemPrompt(sessionId: String, systemPrompt: String) {
+        withContext(Dispatchers.IO) {
+            ZetlaCore.nativeSetSessionSystemPrompt(nativeId(sessionId), systemPrompt)
         }
     }
 

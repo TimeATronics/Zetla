@@ -9,7 +9,6 @@
 #include "json_utils.hpp"
 #include "nlohmann/json.hpp"
 #include "../search/web_search_tool.hpp"
-#include "../search/duckduckgo_provider.hpp"
 #include "../search/exa_provider.hpp"
 #include <cstring>
 #include <curl/curl.h>
@@ -117,8 +116,6 @@ ZETLA_API void zetla_set_api_key(const char* api_key) {
 
 ZETLA_API void zetla_set_model(const char* model) {
     if (!model) return;
-    auto& cfg = zetla::core::get_config();
-    cfg.default_model = model;
     ZLOGI("set_model: model=%s", model);
 }
 
@@ -195,6 +192,19 @@ ZETLA_API zetla_response zetla_get_default_options(void) {
     if (!system_prompt) return;
     auto& cfg = zetla::core::get_config();
     cfg.system_prompt = system_prompt;
+}
+
+ZETLA_API zetla_response zetla_set_session_system_prompt(const char* session_id, const char* system_prompt) {
+    if (!g_manager) return make_error("NOT_INITIALIZED", "Call zetla_init() first");
+    if (!session_id || !system_prompt) return make_error("INVALID_ARG", "session_id or system_prompt is null");
+    std::string sid(session_id);
+    std::string sp(system_prompt);
+    bool ok = g_manager->set_session_system_prompt(sid, sp);
+    if (!ok) return make_error("SESSION_NOT_FOUND", "Session '" + sid + "' not found");
+    nlohmann::json j;
+    j["session_id"] = sid;
+    j["status"] = "system_prompt_updated";
+    return make_response(j.dump());
 }
 
 ZETLA_API zetla_response zetla_get_system_prompt(void) {
@@ -308,7 +318,7 @@ ZETLA_API void zetla_set_search_provider(const char* provider) {
     if (!provider) return;
     auto& cfg = zetla::core::get_config();
     std::string p(provider);
-    if (p == "exa" || p == "duckduckgo") {
+    if (p == "exa") {
         cfg.search_provider = p;
     }
 }

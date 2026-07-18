@@ -3,6 +3,7 @@ package com.zetla.ui.screens.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zetla.domain.repository.ConfigRepository
+import com.zetla.ui.theme.AppColorScheme
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,6 +72,17 @@ class SettingsViewModel @Inject constructor(
                     }
                 }
             }
+            is SettingsUiEvent.SelectColorScheme -> {
+                configRepository.setColorScheme(event.scheme.id)
+                _uiState.update { it.copy(colorScheme = event.scheme) }
+            }
+            is SettingsUiEvent.SelectTtsVoice -> {
+                configRepository.setTtsVoice(event.voiceName)
+                _uiState.update { it.copy(selectedTtsVoiceName = event.voiceName) }
+            }
+            is SettingsUiEvent.SetTtsVoices -> {
+                _uiState.update { it.copy(ttsVoices = event.voices) }
+            }
         }
     }
 
@@ -82,10 +94,12 @@ class SettingsViewModel @Inject constructor(
             it.copy(
                 providers = providers,
                 isDarkMode = configRepository.isDarkMode(),
+                colorScheme = AppColorScheme.fromId(configRepository.getColorScheme()),
                 version = configRepository.getVersion(),
                 systemPrompt = systemPrompt,
                 systemPromptDraft = systemPrompt,
-                providerConfigs = providerConfigs
+                providerConfigs = providerConfigs,
+                selectedTtsVoiceName = configRepository.getTtsVoice()
             )
         }
     }

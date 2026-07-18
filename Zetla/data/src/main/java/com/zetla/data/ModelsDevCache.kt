@@ -196,7 +196,7 @@ class ModelsDevCache @Inject constructor(
             supportsReasoning = current.supportsReasoning || entry.supportsReasoning,
             contextWindow = entry.contextWindow,
             maxOutputTokens = entry.maxOutputTokens,
-            thinkingLevels = thinkingLevels
+            thinkingLevels = if (thinkingLevels.isNotEmpty()) thinkingLevels else current.thinkingLevels
         )
     }
 

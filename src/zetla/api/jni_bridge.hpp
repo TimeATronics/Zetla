@@ -102,6 +102,9 @@ JNIEXPORT jboolean JNICALL Java_com_zetla_data_ZetlaCore_nativeSendMessageWithFi
 JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeSetSystemPrompt(
     JNIEnv* env, jclass cls, jstring system_prompt);
 
+JNIEXPORT jboolean JNICALL Java_com_zetla_data_ZetlaCore_nativeSetSessionSystemPrompt(
+    JNIEnv* env, jclass cls, jstring session_id, jstring system_prompt);
+
 JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeGetSystemPrompt(
     JNIEnv* env, jclass cls);
 
@@ -137,6 +140,10 @@ JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeSetToolExecutor(
 
 JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeCancelRequest(
     JNIEnv* env, jclass cls);
+
+JNIEXPORT jboolean JNICALL Java_com_zetla_data_ZetlaCore_nativeSendMessageWithImages(
+    JNIEnv* env, jclass cls, jstring session_id, jstring message,
+    jobjectArray image_data_uris, jobject callback);
 
 #ifdef __cplusplus
 }

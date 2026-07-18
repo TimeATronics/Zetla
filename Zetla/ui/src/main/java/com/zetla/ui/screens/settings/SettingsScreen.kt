@@ -1,5 +1,8 @@
 package com.zetla.ui.screens.settings
 
+import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,9 +17,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,6 +32,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -37,29 +44,41 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zetla.domain.repository.ProviderConfig
+import com.zetla.ui.theme.AppColorScheme
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel,
-    onThemeChanged: (Boolean) -> Unit = {}
+    onThemeChanged: (Boolean) -> Unit = {},
+    onColorSchemeChanged: (AppColorScheme) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var editingProvider by remember { mutableStateOf<ProviderConfig?>(null) }
+    var showColorSchemePicker by remember { mutableStateOf(false) }
+    var showTtsVoicePicker by remember { mutableStateOf(false) }
+    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
+    var ttsReady by remember { mutableStateOf(false) }
+    var previewPlaybackRate by remember { mutableFloatStateOf(1.0f) }
+    val context = LocalContext.current
 
     LaunchedEffect(uiState.savedMessage, uiState.error) {
         uiState.savedMessage?.let {
@@ -72,11 +91,40 @@ fun SettingsScreen(
         }
     }
 
+    DisposableEffect(Unit) {
+        lateinit var ttsInstance: TextToSpeech
+        val listener = TextToSpeech.OnInitListener { status ->
+            ttsReady = status == TextToSpeech.SUCCESS
+            if (status == TextToSpeech.SUCCESS) {
+                val voices = ttsInstance.voices?.filter { v ->
+                    v.locale?.language == "en"
+                } ?: emptyList()
+                viewModel.onUiEvent(SettingsUiEvent.SetTtsVoices(voices))
+            }
+        }
+        ttsInstance = TextToSpeech(context, listener)
+        tts = ttsInstance
+        onDispose {
+            ttsInstance.stop()
+            ttsInstance.shutdown()
+        }
+    }
+
+    fun previewTtsVoice(voiceName: String) {
+        val ttsInstance = tts ?: return
+        if (!ttsReady) return
+        val voice = uiState.ttsVoices.find { it.name == voiceName }
+        if (voice != null) {
+            ttsInstance.setVoice(voice)
+        }
+        ttsInstance.setSpeechRate(previewPlaybackRate)
+        ttsInstance.speak("Hello, this is a preview of my voice.", TextToSpeech.QUEUE_FLUSH, null, UUID.randomUUID().toString())
+    }
+
     // Provider config modal
     if (editingProvider != null) {
         val config = editingProvider!!
         var editApiKey by remember(config.providerId) { mutableStateOf(config.apiKey) }
-        var editBaseUrl by remember(config.providerId) { mutableStateOf(config.baseUrl) }
         var editEnabled by remember(config.providerId) { mutableStateOf(config.enabled) }
 
         ModalBottomSheet(
@@ -114,26 +162,7 @@ fun SettingsScreen(
                     )
                 )
 
-                Spacer(Modifier.height(12.dp))
-
-                Text("Base URL (optional)", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                Spacer(Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = editBaseUrl,
-                    onValueChange = { editBaseUrl = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("https://...") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                )
-
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(16.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -162,7 +191,7 @@ fun SettingsScreen(
                     Button(
                         onClick = {
                             viewModel.onUiEvent(SettingsUiEvent.SaveProviderConfigDirect(
-                                config.providerId, editApiKey, editBaseUrl, editEnabled
+                                config.providerId, editApiKey, config.baseUrl, editEnabled
                             ))
                             editingProvider = null
                         },
@@ -172,6 +201,164 @@ fun SettingsScreen(
                     ) { Text("Save") }
                 }
 
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+
+    // Color scheme picker modal
+    if (showColorSchemePicker) {
+        ModalBottomSheet(
+            onDismissRequest = { showColorSchemePicker = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp)
+            ) {
+                Text(
+                    text = "Color Scheme",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(16.dp))
+
+                AppColorScheme.entries.forEach { scheme ->
+                    val isSelected = uiState.colorScheme == scheme
+                    Surface(
+                        onClick = {
+                            viewModel.onUiEvent(SettingsUiEvent.SelectColorScheme(scheme))
+                            onColorSchemeChanged(scheme)
+                            showColorSchemePicker = false
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Palette,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(end = 12.dp)
+                            )
+                            Text(
+                                text = scheme.displayName,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "Selected",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+
+    // TTS voice picker modal
+    if (showTtsVoicePicker) {
+        ModalBottomSheet(
+            onDismissRequest = { showTtsVoicePicker = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp)
+            ) {
+                Text(
+                    text = "TTS Voice",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Playback Rate: ${String.format("%.1f", previewPlaybackRate)}x",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                Slider(
+                    value = previewPlaybackRate,
+                    onValueChange = { previewPlaybackRate = it },
+                    valueRange = 0.25f..2.0f,
+                    steps = 7,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(16.dp))
+
+                if (uiState.ttsVoices.isEmpty()) {
+                    Text(
+                        text = "No English TTS voices found on this device.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                uiState.ttsVoices.forEach { voice ->
+                    val isSelected = uiState.selectedTtsVoiceName == voice.name
+                    Surface(
+                        onClick = {
+                            viewModel.onUiEvent(SettingsUiEvent.SelectTtsVoice(voice.name))
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = voice.name.substringAfterLast("-").replace("_", " ").ifEmpty { voice.name },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "${voice.locale?.displayName ?: "Unknown"} | Quality: ${voice.quality}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "Selected",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(end = 4.dp)
+                                )
+                            }
+                            IconButton(onClick = { previewTtsVoice(voice.name) }) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    contentDescription = "Preview voice",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -294,6 +481,86 @@ fun SettingsScreen(
                 )
             }
 
+            Spacer(Modifier.height(16.dp))
+
+            // Color Scheme
+            Surface(
+                onClick = { showColorSchemePicker = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Palette,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Color Scheme",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = uiState.colorScheme.displayName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = "Edit",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // TTS Voice
+            Surface(
+                onClick = { showTtsVoicePicker = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.MusicNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "TTS Voice",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = uiState.selectedTtsVoiceName.substringAfterLast("-").replace("_", " ").ifEmpty {
+                                if (uiState.selectedTtsVoiceName.isNotBlank()) uiState.selectedTtsVoiceName else "Default"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = "Edit",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
             Spacer(Modifier.height(24.dp))
 
             // System Prompt
@@ -330,7 +597,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 TextButton(
                     onClick = { viewModel.onUiEvent(SettingsUiEvent.RestoreDefaultSystemPrompt) }

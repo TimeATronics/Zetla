@@ -10,6 +10,7 @@ interface ChatRepository {
     suspend fun sendMessage(sessionId: String, message: String, model: String, onToken: (String) -> Unit, onFinished: () -> Unit): Boolean
     suspend fun sendMessageFull(sessionId: String, message: String, model: String, onToken: (content: String?, reasoning: String?) -> Unit, onFinished: () -> Unit): Boolean
     suspend fun sendMessageFullWithFiles(sessionId: String, message: String, model: String, fileIds: Array<String>, onToken: (content: String?, reasoning: String?) -> Unit, onFinished: () -> Unit): Boolean
+    suspend fun sendMessageFullWithImages(sessionId: String, message: String, model: String, imageDataUris: Array<String>, onToken: (content: String?, reasoning: String?) -> Unit, onFinished: () -> Unit): Boolean
     suspend fun getHistory(sessionId: String): List<ChatMessage>
     suspend fun loadSession(sessionId: String): Boolean
     suspend fun fetchModels(): List<Model>
@@ -30,6 +31,7 @@ interface ChatRepository {
     suspend fun insertMessages(messages: List<ChatMessage>, conversationId: java.util.UUID)
     suspend fun deleteMessages(conversationId: java.util.UUID)
     suspend fun setSessionOptions(sessionId: String, optionsJson: String)
+    suspend fun setSessionSystemPrompt(sessionId: String, systemPrompt: String)
     suspend fun setSessionWebSearch(sessionId: String, enabled: Boolean): Boolean
     suspend fun compactSession(sessionId: String): Boolean
     suspend fun needsCompaction(sessionId: String): Boolean

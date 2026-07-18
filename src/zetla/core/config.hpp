@@ -14,8 +14,6 @@ namespace zetla::core {
 
     struct ApiConfig {
         std::string api_key;
-        std::string base_url = "https://opencode.ai/zen/v1";
-        std::string default_model = "deepseek-v4-flash";
         std::string storage_path = "~/.zetla/sessions";
         std::string system_prompt;
         ChatOptions default_options;
@@ -44,10 +42,6 @@ namespace zetla::core {
 
     inline const std::string& get_api_key() {
         return get_config().api_key;
-    }
-
-    inline const std::string& default_model() {
-        return get_config().default_model;
     }
 
     inline ChatOptions& get_default_options() {

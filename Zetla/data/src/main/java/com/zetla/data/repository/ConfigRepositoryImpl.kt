@@ -30,6 +30,8 @@ class ConfigRepositoryImpl @Inject constructor(
         private const val KEY_SYSTEM_PROMPT = "system_prompt"
         private const val KEY_PROVIDER_CONFIGS = "provider_configs"
         private const val KEY_EXA_API_KEY = "exa_api_key"
+        private const val KEY_COLOR_SCHEME = "color_scheme"
+        private const val KEY_TTS_VOICE = "tts_voice"
         private const val DEFAULT_MODEL = ""
         private const val DEFAULT_PROVIDER = ""
     }
@@ -154,6 +156,22 @@ class ConfigRepositoryImpl @Inject constructor(
 
     override fun isDarkMode(): Boolean {
         return sharedPreferences.getBoolean(KEY_DARK_MODE, true)
+    }
+
+    override fun setColorScheme(scheme: String) {
+        sharedPreferences.edit().putString(KEY_COLOR_SCHEME, scheme).apply()
+    }
+
+    override fun getColorScheme(): String {
+        return sharedPreferences.getString(KEY_COLOR_SCHEME, "default") ?: "default"
+    }
+
+    override fun setTtsVoice(voiceName: String) {
+        sharedPreferences.edit().putString(KEY_TTS_VOICE, voiceName).apply()
+    }
+
+    override fun getTtsVoice(): String {
+        return sharedPreferences.getString(KEY_TTS_VOICE, "") ?: ""
     }
 
     override fun setSystemPrompt(prompt: String) {

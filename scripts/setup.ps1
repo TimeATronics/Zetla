@@ -10,7 +10,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 $VCPKG_ZIP = "$Root\vcpkg_deps.zip"
 $VCPKG_DIR = "$Root\build\vcpkg_installed"
 
-$VOSK_MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+$VOSK_MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip"
 $VOSK_MODEL_DIR = "$Root\Zetla\app\src\main\assets\model-en-us"
 
 function Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }

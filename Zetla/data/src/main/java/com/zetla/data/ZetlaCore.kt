@@ -43,12 +43,14 @@ object ZetlaCore {
     external fun nativeRemoveFile(sessionId: String, fileId: String): String
     external fun nativeListFiles(sessionId: String): String
     external fun nativeSendMessageWithFiles(sessionId: String, message: String, fileIds: Array<String>, callback: StreamCallback): Boolean
+    external fun nativeSendMessageWithImages(sessionId: String, message: String, imageDataUris: Array<String>, callback: StreamCallback): Boolean
 
     external fun nativeSetDefaultOptions(optionsJson: String)
     external fun nativeGetDefaultOptions(): String
 
     external fun nativeSetSystemPrompt(systemPrompt: String)
     external fun nativeGetSystemPrompt(): String
+    external fun nativeSetSessionSystemPrompt(sessionId: String, systemPrompt: String): Boolean
 
     external fun nativeSetProviderConfig(providerId: String, apiKey: String, baseUrl: String, enabled: Boolean)
     external fun nativeGetProviderConfig(providerId: String): String

@@ -67,7 +67,7 @@ object ZetlaPython {
             return PythonResult(false, "", "Python not initialized")
         }
 
-        Log.d(TAG, "execute: ${script.take(200)}...")
+        Log.d(TAG, "execute: ${script.take(300)}...")
         val bin = pythonBinPath ?: return PythonResult(false, "", "Python binary not found")
         val dir = filesDir ?: return PythonResult(false, "", "Files dir not set")
 
@@ -90,6 +90,7 @@ object ZetlaPython {
 
             val output = process.inputStream.bufferedReader().readText()
             val exited = process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+            Log.d(TAG, "output (${output.length} chars): ${output.take(500)}${if (output.length > 500) "..." else ""}")
             if (!exited) {
                 process.destroyForcibly()
                 PythonResult(false, output, "Timed out after ${timeoutMs}ms")

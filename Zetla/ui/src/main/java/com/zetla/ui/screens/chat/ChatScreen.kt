@@ -71,6 +71,7 @@ import com.zetla.domain.model.FileType
 import com.zetla.domain.model.Role
 import com.zetla.ui.screens.chat.components.AttachmentListModal
 import com.zetla.ui.screens.chat.components.ChatInputTextField
+import com.zetla.ui.screens.chat.components.ImageViewerDialog
 import com.zetla.ui.screens.chat.components.ChatOptions
 import com.zetla.ui.screens.chat.components.ConversationList
 import com.zetla.ui.screens.chat.components.DeleteConversationDialog
@@ -91,6 +92,15 @@ fun ChatScreen(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit, onNav
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showModelSheet by remember { mutableStateOf(false) }
     var showAttachmentList by remember { mutableStateOf(false) }
+    var showImagePreview by remember { mutableStateOf(false) }
+    var previewImagePath by remember { mutableStateOf("") }
+
+    if (showImagePreview && previewImagePath.isNotEmpty()) {
+        ImageViewerDialog(
+            imagePath = previewImagePath,
+            onDismiss = { showImagePreview = false }
+        )
+    }
 
     if (uiState.showOnboarding) {
         ProviderSetupDialog(
@@ -275,7 +285,11 @@ fun ChatScreen(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit, onNav
                     attachedFiles = uiState.attachedFiles,
                     onAttachFile = onAttachFile,
                     onRemoveFile = { fileId -> viewModel.onUiEvent(ChatUiEvent.OnRemoveAttachedFile(fileId)) },
-                    onShowAttachments = { showAttachmentList = true }
+                    onShowAttachments = { showAttachmentList = true },
+                    onImageClick = { path ->
+                        previewImagePath = path
+                        showImagePreview = true
+                    }
                 )
             }
         ) { innerPadding ->
@@ -339,9 +353,8 @@ fun ChatScreen(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit, onNav
                     }
                 } else {
                     val listState = rememberLazyListState()
-                    val streamingVersion = (uiState.streamingThinking?.length ?: 0) +
-                        (uiState.streamingResponse?.length ?: 0)
-                    ListAutoScrollToBottom(2, listState, streamingVersion)
+                    val isStreaming = uiState.isStreamingResponse || uiState.isLoadingResponse
+                    ListAutoScrollToBottom(2, listState, isStreaming)
 
                     LazyColumn(
                         modifier = Modifier
@@ -375,15 +388,15 @@ fun ChatScreen(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit, onNav
                             }
                         }
 
-                        uiState.streamingThinking?.let { thinking ->
-                            item {
+                        if (uiState.streamingThinking != null) {
+                            item(key = "streaming_thinking") {
                                 Spacer(modifier = Modifier.height(8.dp))
-                                ThinkingBlock(thinkingText = thinking)
+                                ThinkingBlock(thinkingText = uiState.streamingThinking)
                             }
                         }
 
-                        if (uiState.isLoadingResponse) {
-                            item {
+                        if (uiState.isLoadingResponse && !uiState.isStreamingResponse) {
+                            item(key = "loading_dots") {
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Box(
                                     modifier = Modifier
@@ -395,12 +408,12 @@ fun ChatScreen(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit, onNav
                             }
                         }
 
-                        uiState.streamingResponse?.let { content ->
-                            item {
+                        if (uiState.streamingResponse != null) {
+                            item(key = "streaming_response") {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 MessageBubble(
                                     message = ChatMessage(
-                                        content = content,
+                                        content = uiState.streamingResponse ?: "",
                                         role = Role.ASSISTANT
                                     )
                                 )

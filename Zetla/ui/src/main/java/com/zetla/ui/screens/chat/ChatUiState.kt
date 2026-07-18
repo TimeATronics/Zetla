@@ -29,6 +29,7 @@ data class ChatUiState(
     val conversations: List<Conversation>,
     val conversationFilter: ConversationFilter,
     val attachedFiles: List<FileAttachment> = emptyList(),
+    val isExtractingPdf: Boolean = false,
     val error: String? = null,
     val modelsByProvider: Map<String, List<Model>> = emptyMap(),
     val reasoningEffort: String = ""

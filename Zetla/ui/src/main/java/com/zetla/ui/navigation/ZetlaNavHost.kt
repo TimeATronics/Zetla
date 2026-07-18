@@ -12,6 +12,7 @@ import com.zetla.domain.repository.ConfigRepository
 import com.zetla.ui.screens.chat.ChatScreen
 import com.zetla.ui.screens.settings.SettingsScreen
 import com.zetla.ui.screens.settings.SettingsViewModel
+import com.zetla.ui.theme.AppColorScheme
 import com.zetla.ui.voice.VoiceChatScreen
 import com.zetla.ui.voice.VoiceChatViewModel
 import java.util.UUID
@@ -20,7 +21,8 @@ import java.util.UUID
 fun ZetlaNavHost(
     navController: NavHostController,
     startDestination: String = Screen.ChatHome.route,
-    onThemeChanged: (Boolean) -> Unit = {}
+    onThemeChanged: (Boolean) -> Unit = {},
+    onColorSchemeChanged: (AppColorScheme) -> Unit = {}
 ) {
     NavHost(
         navController = navController,
@@ -53,7 +55,8 @@ fun ZetlaNavHost(
             SettingsScreen(
                 onBack = { navController.popBackStack() },
                 viewModel = hiltViewModel(),
-                onThemeChanged = onThemeChanged
+                onThemeChanged = onThemeChanged,
+                onColorSchemeChanged = onColorSchemeChanged
             )
         }
 

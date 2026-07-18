@@ -82,7 +82,9 @@ namespace zetla::core {
             );
 
             if (!ok) {
-                callback({"Error: " + error, "", true});
+                bool is_abort = error.find("aborted") != std::string::npos ||
+                                error.find("cancel") != std::string::npos;
+                callback({is_abort ? "" : "Error: " + error, "", true});
             }
         }
 

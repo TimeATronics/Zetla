@@ -542,6 +542,17 @@ JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeSetSystemPrompt(
     zetla_set_system_prompt(sp.c_str());
 }
 
+JNIEXPORT jboolean JNICALL Java_com_zetla_data_ZetlaCore_nativeSetSessionSystemPrompt(
+    JNIEnv* env, jclass, jstring session_id, jstring system_prompt
+) {
+    std::string sid = jstring_to_string(env, session_id);
+    std::string sp = jstring_to_string(env, system_prompt);
+    zetla_response resp = zetla_set_session_system_prompt(sid.c_str(), sp.c_str());
+    bool ok = resp.success;
+    zetla_free_response(&resp);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeGetSystemPrompt(
     JNIEnv* env, jclass
 ) {
@@ -680,4 +691,54 @@ JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeCancelRequest(
     JNIEnv* env, jclass
 ) {
     zetla_cancel_request();
+}
+
+JNIEXPORT jboolean JNICALL Java_com_zetla_data_ZetlaCore_nativeSendMessageWithImages(
+    JNIEnv* env, jclass, jstring session_id, jstring message,
+    jobjectArray image_data_uris, jobject callback
+) {
+    init_jvm(env);
+
+    std::lock_guard<std::mutex> lock(g_jni_mutex);
+    if (g_callback_obj) {
+        env->DeleteGlobalRef(g_callback_obj);
+        g_callback_obj = nullptr;
+    }
+    if (g_callback_class_global) {
+        env->DeleteGlobalRef(g_callback_class_global);
+        g_callback_class_global = nullptr;
+    }
+
+    jclass local_class = env->GetObjectClass(callback);
+    g_callback_class_global = (jclass)env->NewGlobalRef(local_class);
+    env->DeleteLocalRef(local_class);
+
+    g_on_token = env->GetMethodID(g_callback_class_global, "onToken", "(Ljava/lang/String;)V");
+    g_on_finished = env->GetMethodID(g_callback_class_global, "onFinished", "()V");
+    g_callback_obj = env->NewGlobalRef(callback);
+
+    std::string sid = jstring_to_string(env, session_id);
+    std::string msg = jstring_to_string(env, message);
+
+    int count = env->GetArrayLength(image_data_uris);
+    std::vector<std::string> uri_strs;
+    uri_strs.reserve(count);
+    for (int i = 0; i < count; i++) {
+        auto jstr = (jstring)env->GetObjectArrayElement(image_data_uris, i);
+        uri_strs.push_back(jstring_to_string(env, jstr));
+        env->DeleteLocalRef(jstr);
+    }
+
+    std::vector<const char*> uri_cstrs;
+    uri_cstrs.reserve(count);
+    for (auto& s : uri_strs) uri_cstrs.push_back(s.c_str());
+
+    int ok = zetla_send_message_with_images(sid.c_str(), msg.c_str(), uri_cstrs.data(), count, jni_stream_callback);
+
+    if (g_callback_obj) {
+        env->DeleteGlobalRef(g_callback_obj);
+        g_callback_obj = nullptr;
+    }
+
+    return ok ? JNI_TRUE : JNI_FALSE;
 }

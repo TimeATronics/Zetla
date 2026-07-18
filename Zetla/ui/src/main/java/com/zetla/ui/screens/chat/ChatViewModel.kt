@@ -1,5 +1,6 @@
 package com.zetla.ui.screens.chat
 
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -119,12 +120,14 @@ class ChatViewModel @Inject constructor(
             Log.d(TAG, "createNewSession: switching provider $currentProvider -> $providerForModel")
             configRepository.setProvider(providerForModel)
         }
-        val systemPrompt = configRepository.getSystemPrompt()
+        val userPrompt = configRepository.getSystemPrompt()
+        val now = java.text.SimpleDateFormat("EEEE, MMMM d, yyyy", java.util.Locale.US).format(java.util.Date())
+        val dynamicPrompt = buildDynamicPrompt(userPrompt, _uiState.value.isWebSearchEnabled, _uiState.value.isCodingEnabled, now)
         val modelForSession = if (providerForModel.isNotBlank()) Model(modelStr, modelStr, providerForModel) else Model(modelStr, modelStr)
         val conversation = chatRepository.createConversation(
             title = "New Chat",
             model = modelForSession,
-            systemPrompt = systemPrompt
+            systemPrompt = dynamicPrompt
         )
         sessionId = conversation.id.toString()
         _uiState.update {
@@ -198,10 +201,8 @@ class ChatViewModel @Inject constructor(
             }
             is ChatUiEvent.OnRefreshConfig -> refreshConfig()
             is ChatUiEvent.OnAttachFile -> {
-                val files = _uiState.value.attachedFiles.toMutableList()
-                if (files.size < 5) {
-                    files.add(event.file)
-                    _uiState.update { it.copy(attachedFiles = files) }
+                if (_uiState.value.attachedFiles.isEmpty()) {
+                    _uiState.update { it.copy(attachedFiles = listOf(event.file)) }
                 }
             }
             is ChatUiEvent.OnRemoveAttachedFile -> {
@@ -215,8 +216,60 @@ class ChatViewModel @Inject constructor(
                 val effort = event.effort
                 _uiState.update { it.copy(reasoningEffort = effort) }
                 val current = configRepository.getDefaultParams()
-                configRepository.setDefaultParams(current.copy(reasoningEffort = effort))
+                val updated = current.copy(reasoningEffort = effort)
+                configRepository.setDefaultParams(updated)
+                viewModelScope.launch {
+                    if (sessionId.isNotBlank()) {
+                        chatRepository.setSessionOptions(sessionId, updated.toOptionsJson())
+                    }
+                }
             }
+        }
+    }
+
+    private fun buildDynamicPrompt(userPrompt: String, isWebSearch: Boolean, isCoding: Boolean, dateStr: String): String {
+        val toolParts = mutableListOf<String>()
+        if (isWebSearch) {
+            toolParts.add("""
+You have access to the web_search tool with two modes:
+  1. mode='search' + query → get search results (titles, URLs, snippets)
+  2. mode='fetch' + url → get the full content of a web page
+
+When to use each mode:
+• "who won the latest match" → use search mode
+• "what's the weather in Paris" → use search mode
+• "I need the full article from this link https://..." → use fetch mode to read the entire page
+• "summarize this page: https://..." → use fetch mode
+• "latest news about AI" → use search, then fetch promising URLs for deeper info
+
+The search tool returns titles, URLs and snippets. Use fetch mode with specific URLs to get complete page content.
+""".trimIndent())
+        }
+        if (isCoding) {
+            toolParts.add("""
+You have access to the run_code tool (Python, standard library only). Use it for computation, data processing, and verification.
+
+When to use run_code:
+• "calculate 15% tip on $47.50" → compute the exact amount
+• "what's 2^10" → compute powers
+• "convert 100 USD to EUR at rate 0.92" → do the conversion
+• "sort these numbers: 42, 7, 19, 3" → run a quick sort
+• "is 97 prime?" → check primality
+
+Available modules: math, decimal, fractions, random, json, re, collections, itertools, functools.
+No pip, no internet, no filesystem access.
+""".trimIndent())
+        }
+        return buildString {
+            if (userPrompt.isNotBlank()) {
+                append(userPrompt)
+                append("\n\n")
+            }
+            if (toolParts.isNotEmpty()) {
+                append(toolParts.joinToString("\n"))
+                append("\n\n")
+            }
+            append("Current date: $dateStr.")
         }
     }
 
@@ -273,38 +326,6 @@ class ChatViewModel @Inject constructor(
         ZetlaCore.nativeSetToolExecutor(nativeSid, executor)
     }
 
-    private fun buildDynamicSystemPrompt(): String {
-        val state = _uiState.value
-        val parts = mutableListOf<String>()
-
-        // Layer 1: User-settable system prompt (from settings)
-        val userPrompt = configRepository.getSystemPrompt()
-        if (userPrompt.isNotBlank()) {
-            parts.add(userPrompt)
-        }
-
-        // Layer 2: Tool-specific instructions (conditional, only for enabled tools)
-        val toolParts = mutableListOf<String>()
-        if (state.isWebSearchEnabled) {
-            toolParts.add("You have access to the web_search tool for real-time information. It returns search results with titles, URLs, and snippets — it CANNOT fetch full page content from linked URLs. Use the provided snippets to answer, and if more detail is needed, run a more specific search.")
-        }
-        if (state.isCodingEnabled) {
-            toolParts.add("You have access to the run_code tool to execute Python code. IMPORTANT: Only Python standard library modules are available (math, decimal, fractions, random, json, re, collections, itertools, functools). No pip packages, no internet access. Do NOT use os, sys, pathlib, subprocess, or any filesystem/network modules. The code runs in a sandbox.")
-        }
-        if (toolParts.isNotEmpty()) {
-            parts.add(toolParts.joinToString("\n"))
-        }
-
-        // Layer 3: Always-present app info and date grounding (hidden footer)
-        val now = java.text.SimpleDateFormat("EEEE, MMMM d, yyyy", java.util.Locale.US).format(java.util.Date())
-        val base = buildString {
-            append("Current date: $now.")
-        }
-        parts.add(base)
-
-        return parts.joinToString("\n\n")
-    }
-
     private suspend fun stopRequest() {
         chatRepository.cancelRequest()
         responseJob?.cancelAndJoin()
@@ -327,7 +348,7 @@ class ChatViewModel @Inject constructor(
 
     private suspend fun sendMessage() {
         val state = _uiState.value
-        val text = state.inputText
+        var text = state.inputText
         if (text.isEmpty() || state.isLoadingResponse || state.isStreamingResponse) return
 
         if (sessionId.isBlank()) {
@@ -336,13 +357,6 @@ class ChatViewModel @Inject constructor(
 
         val attachedFiles = state.attachedFiles
         val hasFiles = attachedFiles.isNotEmpty()
-
-        if (hasFiles && state.messages.isNotEmpty()) {
-            _uiState.update {
-                it.copy(error = "Files can only be attached to the first message.")
-            }
-            return
-        }
 
         val currentMessages = state.messages.toMutableList().apply {
             add(UiMessage(id = UUID.randomUUID().toString(), content = text, isUser = true))
@@ -385,11 +399,6 @@ class ChatViewModel @Inject constructor(
         val response = StringBuilder()
         val thinkingText = StringBuilder()
         responseJob = viewModelScope.launch(Dispatchers.IO) {
-            // Set dynamic system prompt with date and tool instructions
-            if (sessionId.isNotBlank()) {
-                val dynamicPrompt = buildDynamicSystemPrompt()
-                ZetlaCore.nativeSetSystemPrompt(dynamicPrompt)
-            }
             // Check and run compaction if needed
             if (sessionId.isNotBlank() && chatRepository.needsCompaction(sessionId)) {
                 _uiState.update {
@@ -398,134 +407,279 @@ class ChatViewModel @Inject constructor(
                 chatRepository.compactSession(sessionId)
             }
             _uiState.update { it.copy(streamingThinking = null) }
+
+            // --- PDF extraction on Kotlin side ---
+            val pdfFiles = attachedFiles.filter { it.type == FileType.PDF }
+            val nonPdfFiles = attachedFiles.filter { it.type != FileType.PDF }
+            var hasImageUris = false
+            val imageUris = mutableListOf<String>()
+            var finalText = text
+
+            if (pdfFiles.isNotEmpty()) {
+                val supportsVision = _uiState.value.selectedModel.capabilities.supportsVision
+                _uiState.update { it.copy(isExtractingPdf = true, streamingThinking = "Extracting PDF content...") }
+
+                val pdfContent = StringBuilder()
+                for (pdfFile in pdfFiles) {
+                    try {
+                        val uri = Uri.fromFile(java.io.File(pdfFile.path))
+                        if (supportsVision) {
+                            val result = fileRepository.extractPdfWithImages(uri)
+                            if (result.success) {
+                                val data = result.data!!
+                                pdfContent.appendLine("--- Content from ${pdfFile.name} ---")
+                                pdfContent.appendLine(data.text)
+                                pdfContent.appendLine("---")
+                                imageUris.addAll(data.imageDataUris)
+                                if (data.imageDataUris.isNotEmpty()) hasImageUris = true
+                            } else {
+                                Log.w(TAG, "PDF extraction failed for ${pdfFile.name}: ${result.error}")
+                                pdfContent.appendLine("[Failed to extract ${pdfFile.name}: ${result.error}]")
+                            }
+                        } else {
+                            val result = fileRepository.extractPdfText(uri)
+                            if (result.success) {
+                                pdfContent.appendLine("--- Content from ${pdfFile.name} ---")
+                                pdfContent.appendLine(result.data!!)
+                                pdfContent.appendLine("---")
+                            } else {
+                                Log.w(TAG, "PDF extraction failed for ${pdfFile.name}: ${result.error}")
+                                pdfContent.appendLine("[Failed to extract ${pdfFile.name}: ${result.error}]")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "PDF extraction exception for ${pdfFile.name}", e)
+                        pdfContent.appendLine("[Error extracting ${pdfFile.name}: ${e.message}]")
+                    }
+                }
+
+                _uiState.update { it.copy(isExtractingPdf = false, streamingThinking = null) }
+
+                if (pdfContent.isNotEmpty()) {
+                    finalText = "${pdfContent.toString().trimEnd()}\n\n---\n$text"
+                }
+            }
+
             try {
                 withTimeout(90_000L) {
                     val modelId = _uiState.value.selectedModel.id.ifEmpty { configRepository.getModel() }
-                    Log.d(TAG, "sendMessage: session=$sessionId model=$modelId text='$text' files=${attachedFiles.size}")
+                    Log.d(TAG, "sendMessage: session=$sessionId model=$modelId text='$finalText' pdfFiles=${pdfFiles.size} nonPdfFiles=${nonPdfFiles.size} imageUris=${imageUris.size}")
+
+                    val params = configRepository.getDefaultParams()
+                    chatRepository.setSessionOptions(sessionId, params.toOptionsJson())
+
+                    val state = _uiState.value
+                    val userPrompt = configRepository.getSystemPrompt()
+                    val now = java.text.SimpleDateFormat("EEEE, MMMM d, yyyy", java.util.Locale.US).format(java.util.Date())
+                    val dynamicPrompt = buildDynamicPrompt(userPrompt, state.isWebSearchEnabled, state.isCodingEnabled, now)
+                    chatRepository.setSessionSystemPrompt(sessionId, dynamicPrompt)
 
                     val success: Boolean
-                    if (hasFiles) {
-                        val fileIds = attachedFiles.mapNotNull { file ->
-                            fileRepository.addFile(sessionId, file.path).data?.id
+                    when {
+                        hasImageUris && imageUris.isNotEmpty() -> {
+                            success = chatRepository.sendMessageFullWithImages(
+                                sessionId = sessionId,
+                                message = finalText,
+                                model = modelId,
+                                imageDataUris = imageUris.toTypedArray(),
+                                onToken = { content, reasoning ->
+                                    if (reasoning != null) thinkingText.append(reasoning)
+                                    if (content != null) response.append(content)
+                                    _uiState.update {
+                                        it.copy(
+                                            streamingResponse = response.toString(),
+                                            streamingThinking = thinkingText.toString().ifEmpty { null },
+                                            isLoadingResponse = false,
+                                            isStreamingResponse = true
+                                        )
+                                    }
+                                },
+                                onFinished = {
+                                    val finalResp = response.toString()
+                                    if (finalResp.isBlank() || finalResp.startsWith("Error:")) {
+                                        _uiState.update {
+                                            it.copy(
+                                                streamingResponse = null,
+                                                streamingThinking = null,
+                                                isLoadingResponse = false,
+                                                isStreamingResponse = false,
+                                                attachedFiles = emptyList()
+                                            )
+                                        }
+                                    } else {
+                                        Log.d(TAG, "sendMessage finished: session=$sessionId")
+                                        _uiState.update {
+                                            val finalMessages = it.messages + UiMessage(
+                                                id = UUID.randomUUID().toString(),
+                                                content = finalResp,
+                                                thinkingText = thinkingText.toString().ifEmpty { null },
+                                                isUser = false
+                                            )
+                                            it.copy(
+                                                messages = finalMessages,
+                                                streamingResponse = null,
+                                                streamingThinking = null,
+                                                isLoadingResponse = false,
+                                                isStreamingResponse = false,
+                                                attachedFiles = emptyList()
+                                            )
+                                        }
+                                    }
+                                }
+                            )
                         }
-                        success = chatRepository.sendMessageFullWithFiles(
-                            sessionId = sessionId,
-                            message = text,
-                            model = modelId,
-                            fileIds = fileIds.toTypedArray(),
-                            onToken = { content, reasoning ->
-                                if (reasoning != null) thinkingText.append(reasoning)
-                                if (content != null) response.append(content)
-                                _uiState.update {
-                                    it.copy(
-                                        streamingResponse = response.toString(),
-                                        streamingThinking = thinkingText.toString().ifEmpty { null },
-                                        isLoadingResponse = false,
-                                        isStreamingResponse = true
-                                    )
-                                }
-                            },
-                            onFinished = {
-                                Log.d(TAG, "sendMessage finished: session=$sessionId")
-                                _uiState.update {
-                                    val finalMessages = it.messages + UiMessage(
-                                        id = UUID.randomUUID().toString(),
-                                        content = response.toString(),
-                                        thinkingText = thinkingText.toString().ifEmpty { null },
-                                        isUser = false
-                                    )
-                                    it.copy(
-                                        messages = finalMessages,
-                                        streamingResponse = null,
-                                        streamingThinking = null,
-                                        isLoadingResponse = false,
-                                        isStreamingResponse = false,
-                                        attachedFiles = emptyList()
-                                    )
-                                }
+                        nonPdfFiles.isNotEmpty() -> {
+                            val fileIds = nonPdfFiles.mapNotNull { file ->
+                                fileRepository.addFile(sessionId, file.path).data?.id
                             }
-                        )
-                    } else {
-                        success = chatRepository.sendMessageFull(
-                            sessionId = sessionId,
-                            message = text,
-                            model = modelId,
-                            onToken = { content, reasoning ->
-                                if (reasoning != null) thinkingText.append(reasoning)
-                                if (content != null) response.append(content)
-                                _uiState.update {
-                                    it.copy(
-                                        streamingResponse = response.toString(),
-                                        streamingThinking = thinkingText.toString().ifEmpty { null },
-                                        isLoadingResponse = false,
-                                        isStreamingResponse = true
-                                    )
+                            success = chatRepository.sendMessageFullWithFiles(
+                                sessionId = sessionId,
+                                message = finalText,
+                                model = modelId,
+                                fileIds = fileIds.toTypedArray(),
+                                onToken = { content, reasoning ->
+                                    if (reasoning != null) thinkingText.append(reasoning)
+                                    if (content != null) response.append(content)
+                                    _uiState.update {
+                                        it.copy(
+                                            streamingResponse = response.toString(),
+                                            streamingThinking = thinkingText.toString().ifEmpty { null },
+                                            isLoadingResponse = false,
+                                            isStreamingResponse = true
+                                        )
+                                    }
+                                },
+                                onFinished = {
+                                    val finalResp = response.toString()
+                                    if (finalResp.isBlank() || finalResp.startsWith("Error:")) {
+                                        _uiState.update {
+                                            it.copy(
+                                                streamingResponse = null,
+                                                streamingThinking = null,
+                                                isLoadingResponse = false,
+                                                isStreamingResponse = false,
+                                                attachedFiles = emptyList()
+                                            )
+                                        }
+                                    } else {
+                                        Log.d(TAG, "sendMessage finished: session=$sessionId")
+                                        _uiState.update {
+                                            val finalMessages = it.messages + UiMessage(
+                                                id = UUID.randomUUID().toString(),
+                                                content = finalResp,
+                                                thinkingText = thinkingText.toString().ifEmpty { null },
+                                                isUser = false
+                                            )
+                                            it.copy(
+                                                messages = finalMessages,
+                                                streamingResponse = null,
+                                                streamingThinking = null,
+                                                isLoadingResponse = false,
+                                                isStreamingResponse = false,
+                                                attachedFiles = emptyList()
+                                            )
+                                        }
+                                    }
                                 }
-                            },
-                            onFinished = {
-                                Log.d(TAG, "sendMessage finished: session=$sessionId")
-                                _uiState.update {
-                                    val finalMessages = it.messages + UiMessage(
-                                        id = UUID.randomUUID().toString(),
-                                        content = response.toString(),
-                                        thinkingText = thinkingText.toString().ifEmpty { null },
-                                        isUser = false
-                                    )
-                                    it.copy(
-                                        messages = finalMessages,
-                                        streamingResponse = null,
-                                        streamingThinking = null,
-                                        isLoadingResponse = false,
-                                        isStreamingResponse = false,
-                                        attachedFiles = emptyList()
-                                    )
+                            )
+                        }
+                        else -> {
+                            success = chatRepository.sendMessageFull(
+                                sessionId = sessionId,
+                                message = finalText,
+                                model = modelId,
+                                onToken = { content, reasoning ->
+                                    if (reasoning != null) thinkingText.append(reasoning)
+                                    if (content != null) response.append(content)
+                                    _uiState.update {
+                                        it.copy(
+                                            streamingResponse = response.toString(),
+                                            streamingThinking = thinkingText.toString().ifEmpty { null },
+                                            isLoadingResponse = false,
+                                            isStreamingResponse = true
+                                        )
+                                    }
+                                },
+                                onFinished = {
+                                    val finalResp = response.toString()
+                                    if (finalResp.isBlank() || finalResp.startsWith("Error:")) {
+                                        _uiState.update {
+                                            it.copy(
+                                                streamingResponse = null,
+                                                streamingThinking = null,
+                                                isLoadingResponse = false,
+                                                isStreamingResponse = false,
+                                                attachedFiles = emptyList()
+                                            )
+                                        }
+                                    } else {
+                                        Log.d(TAG, "sendMessage finished: session=$sessionId")
+                                        _uiState.update {
+                                            val finalMessages = it.messages + UiMessage(
+                                                id = UUID.randomUUID().toString(),
+                                                content = finalResp,
+                                                thinkingText = thinkingText.toString().ifEmpty { null },
+                                                isUser = false
+                                            )
+                                            it.copy(
+                                                messages = finalMessages,
+                                                streamingResponse = null,
+                                                streamingThinking = null,
+                                                isLoadingResponse = false,
+                                                isStreamingResponse = false,
+                                                attachedFiles = emptyList()
+                                            )
+                                        }
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
-            if (!success) {
-                Log.e(TAG, "sendMessage failed: session=$sessionId")
+                    if (!success) {
+                        Log.e(TAG, "sendMessage failed: session=$sessionId")
+                        _uiState.update {
+                            val errorMessages = it.messages + UiMessage(
+                                id = UUID.randomUUID().toString(),
+                                content = "Request failed. Check your API key and connection.",
+                                isUser = false
+                            )
+                            it.copy(
+                                messages = errorMessages,
+                                streamingResponse = null,
+                                streamingThinking = null,
+                                isLoadingResponse = false,
+                                isStreamingResponse = false
+                            )
+                        }
+                    }
+                }
+            } catch (_: TimeoutCancellationException) {
+                Log.e(TAG, "sendMessage timed out: session=$sessionId")
                 _uiState.update {
-                    val errorMessages = it.messages + UiMessage(
-                        id = UUID.randomUUID().toString(),
-                        content = "Request failed. Check your API key and connection.",
-                        isUser = false
-                    )
                     it.copy(
-                        messages = errorMessages,
+                        isExtractingPdf = false,
+                        isLoadingResponse = false,
+                        isStreamingResponse = false,
                         streamingResponse = null,
                         streamingThinking = null,
+                        error = "Request timed out. Please try again."
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "sendMessage exception", e)
+                _uiState.update {
+                    it.copy(
+                        isExtractingPdf = false,
                         isLoadingResponse = false,
-                        isStreamingResponse = false
+                        isStreamingResponse = false,
+                        streamingResponse = null,
+                        streamingThinking = null,
+                        error = "Request failed: ${e.message}"
                     )
                 }
             }
         }
-    } catch (_: TimeoutCancellationException) {
-            Log.e(TAG, "sendMessage timed out: session=$sessionId")
-            _uiState.update {
-                it.copy(
-                    isLoadingResponse = false,
-                    isStreamingResponse = false,
-                    streamingResponse = null,
-                    streamingThinking = null,
-                    error = "Request timed out. Please try again."
-                )
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "sendMessage exception", e)
-            _uiState.update {
-                it.copy(
-                    isLoadingResponse = false,
-                    isStreamingResponse = false,
-                    streamingResponse = null,
-                    streamingThinking = null,
-                    error = "Request failed: ${e.message}"
-                )
-            }
-        }
     }
-}
 
     private suspend fun fetchModels() {
         _uiState.update { it.copy(isFetchingModels = true) }
@@ -543,10 +697,20 @@ class ChatViewModel @Inject constructor(
                 )
             }
         } else {
+            val visionModels = allModels.filter { it.capabilities.supportsVision }
+            if (visionModels.isNotEmpty()) {
+                Log.d(TAG, "fetchModels: vision-capable models: ${visionModels.map { it.id }}")
+            }
+            val thinkingModels = allModels.filter { it.capabilities.thinkingLevels.isNotEmpty() }
+            if (thinkingModels.isNotEmpty()) {
+                Log.d(TAG, "fetchModels: models with thinking levels: ${thinkingModels.map { "${it.id}=${it.capabilities.thinkingLevels}" }}")
+            }
             _uiState.update { state ->
                 val currentId = state.selectedModel.id
                 val preserved = allModels.find { m -> m.id == currentId && m.provider == state.selectedModel.provider }
                 val newModel = preserved ?: if (allModels.isNotEmpty()) allModels.first() else Model.defaultModel
+                val newLevels = newModel.capabilities.thinkingLevels
+                Log.d(TAG, "fetchModels: selected model='${newModel.id}' supportsVision=${newModel.capabilities.supportsVision} thinkingLevels=${newLevels} reasoningEffort=${_uiState.value.reasoningEffort}")
                 state.copy(
                     models = allModels,
                     selectedModel = newModel,

@@ -7,12 +7,11 @@ VCPKG := build/vcpkg_installed/x64-mingw-dynamic
 OUT   := build/src
 
 # Flags
-CXXFLAGS := -std=c++23 -Wall -Wextra -Wpedantic -I$(SRC) -I$(VCPKG)/include -I$(ZETLA)/thirdparty -I$(ZETLA)/thirdparty/zip -I$(ZETLA)/route -I$(ZETLA)/protocols/openai_chat -I$(ZETLA)/network -I$(ZETLA)/tools -I$(ZETLA)/providers/opencode -I$(ZETLA)/providers/nvidia -I$(ZETLA)/providers/deepseek
+CXXFLAGS := -std=c++23 -Wall -Wextra -Wpedantic -I$(SRC) -I$(VCPKG)/include -I$(ZETLA)/thirdparty -I$(ZETLA)/thirdparty/zip -I$(ZETLA)/route -I$(ZETLA)/protocols/openai_chat -I$(ZETLA)/network -I$(ZETLA)/tools -I$(ZETLA)/providers/opencode -I$(ZETLA)/providers/nvidia -I$(ZETLA)/providers/deepseek -I$(ZETLA)/thirdparty -I$(ZETLA)/thirdparty/zip -I$(VCPKG)/../nanopdf/src -I$(VCPKG)/../nanopdf/src/c -I$(VCPKG)/../nanopdf/src/third_party
 LDFLAGS  := -L$(VCPKG)/lib -lcurl -lz -lbcrypt -liphlpapi
 
 # Sources
-DLL_SRCS := $(ZETLA)/search/duckduckgo_provider.cpp           \
-            $(ZETLA)/search/exa_provider.cpp                  \
+DLL_SRCS := $(ZETLA)/search/exa_provider.cpp                  \
             $(ZETLA)/search/web_search_tool.cpp                \
             $(ZETLA)/session/session_manager.cpp              \
             $(ZETLA)/api/dll_api.cpp                          \
@@ -28,8 +27,7 @@ DLL_SRCS := $(ZETLA)/search/duckduckgo_provider.cpp           \
             $(ZETLA)/thirdparty/zip/zip.c
 
 # Objects
-DLL_OBJS := $(OUT)/search/duckduckgo_provider.o            \
-            $(OUT)/search/exa_provider.o                   \
+DLL_OBJS := $(OUT)/search/exa_provider.o                   \
             $(OUT)/search/web_search_tool.o                \
             $(OUT)/session/session_manager.o               \
             $(OUT)/api/dll_api.o                           \

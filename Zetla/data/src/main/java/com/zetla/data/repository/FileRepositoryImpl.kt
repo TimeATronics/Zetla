@@ -1,17 +1,24 @@
 package com.zetla.data.repository
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
+import com.zetla.data.PdfExtractor
 import com.zetla.data.ZetlaCore
 import com.zetla.data.mapper.toFileAttachments
 import com.zetla.data.mapper.toFileAttachment
 import com.zetla.domain.model.FileAttachment
 import com.zetla.domain.model.ZetlaResult
 import com.zetla.domain.repository.FileRepository
+import com.zetla.domain.repository.PdfExtractResult
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class FileRepositoryImpl @Inject constructor() : FileRepository {
+class FileRepositoryImpl @Inject constructor(
+    @ApplicationContext private val context: Context
+) : FileRepository {
 
     private fun nativeId(sessionId: String): String = sessionId.replace("-", "")
 
@@ -60,6 +67,26 @@ class FileRepositoryImpl @Inject constructor() : FileRepository {
             }
         } catch (e: Exception) {
             ZetlaResult.error(e.message ?: "Exception")
+        }
+    }
+
+    override suspend fun extractPdfText(uri: Uri): ZetlaResult<String> {
+        return try {
+            val result = PdfExtractor.extract(context, uri)
+            ZetlaResult.success(result.text)
+        } catch (e: Exception) {
+            Log.e("FileRepo", "extractPdfText exception", e)
+            ZetlaResult.error(e.message ?: "PDF extraction failed")
+        }
+    }
+
+    override suspend fun extractPdfWithImages(uri: Uri): ZetlaResult<PdfExtractResult> {
+        return try {
+            val result = PdfExtractor.extractWithImages(context, uri)
+            ZetlaResult.success(PdfExtractResult(result.text, result.imageDataUris))
+        } catch (e: Exception) {
+            Log.e("FileRepo", "extractPdfWithImages exception", e)
+            ZetlaResult.error(e.message ?: "PDF extraction failed")
         }
     }
 }

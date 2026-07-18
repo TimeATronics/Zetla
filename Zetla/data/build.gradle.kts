@@ -42,4 +42,5 @@ dependencies {
     implementation(project(":domain"))
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 }

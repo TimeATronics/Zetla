@@ -15,7 +15,6 @@ add_library(zetla SHARED
     ${ZETLA_ROOT}/zetla/api/dll_api.cpp
     ${ZETLA_ROOT}/zetla/api/jni_bridge.cpp
     ${ZETLA_ROOT}/zetla/session/session_manager.cpp
-    ${ZETLA_ROOT}/zetla/search/duckduckgo_provider.cpp
     ${ZETLA_ROOT}/zetla/search/exa_provider.cpp
     ${ZETLA_ROOT}/zetla/search/web_search_tool.cpp
     ${ZETLA_ROOT}/zetla/storage/storage_manager.cpp
@@ -41,6 +40,7 @@ target_include_directories(zetla PRIVATE
     ${ZETLA_ROOT}/zetla/route
     ${ZETLA_ROOT}/zetla/protocols/openai_chat
     ${ZETLA_ROOT}/zetla/tools
+    ${ZETLA_ROOT}/zetla/pdf
     ${DEPS_DIR}/include
     ${DEPS_DIR}/include/openssl
 )

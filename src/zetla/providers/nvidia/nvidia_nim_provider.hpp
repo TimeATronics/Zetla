@@ -74,13 +74,18 @@ namespace zetla::providers {
                 entry["name"] = id;
                 entry["provider"] = "nvidia_nim";
 
+                bool vision = id.find("vision") != std::string::npos ||
+                              id.find("Vision") != std::string::npos ||
+                              id.find("multi-modal") != std::string::npos;
+
                 nlohmann::json caps;
-                caps["supports_vision"] = false;
+                caps["supports_vision"] = vision;
                 caps["supports_tools"] = true;
-                caps["supports_reasoning"] = false;
+                caps["supports_reasoning"] = true;
                 caps["context_window"] = 8192;
                 caps["max_output_tokens"] = 4096;
-                caps["supported_params"] = {"temperature", "max_tokens", "top_p"};
+                caps["thinking_levels"] = {"auto", "low", "medium", "high"};
+                caps["supported_params"] = {"temperature", "max_tokens", "top_p", "reasoning_effort"};
                 entry["capabilities"] = caps;
                 result.push_back(entry);
             }

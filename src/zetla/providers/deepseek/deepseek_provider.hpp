@@ -75,22 +75,14 @@ namespace zetla::providers {
                 entry["name"] = id;
                 entry["provider"] = "deepseek";
 
-                bool reasoning = id.find("reason") != std::string::npos ||
-                                 id.find("deepseek-r1") != std::string::npos;
-
                 nlohmann::json caps;
                 caps["supports_vision"] = false;
                 caps["supports_tools"] = true;
-                caps["supports_reasoning"] = reasoning;
+                caps["supports_reasoning"] = true;
                 caps["context_window"] = 65536;
                 caps["max_output_tokens"] = 8192;
-
-                nlohmann::json params = {"temperature", "max_tokens", "top_p"};
-                if (reasoning) {
-                    params.push_back("reasoning_effort");
-                    caps["thinking_levels"] = {"disabled", "low", "medium", "high"};
-                }
-                caps["supported_params"] = params;
+                caps["thinking_levels"] = {"disabled", "low", "medium", "high"};
+                caps["supported_params"] = {"temperature", "max_tokens", "top_p", "reasoning_effort"};
                 entry["capabilities"] = caps;
                 result.push_back(entry);
             }

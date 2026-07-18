@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.rememberNavController
 import com.zetla.domain.repository.ConfigRepository
 import com.zetla.ui.navigation.ZetlaNavHost
+import com.zetla.ui.theme.AppColorScheme
 import com.zetla.ui.theme.ZetlaTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.MainScope
@@ -55,17 +56,19 @@ class MainActivity : ComponentActivity() {
         configRepository.init()
 
         var isDarkMode by mutableStateOf(configRepository.isDarkMode())
+        var appColorScheme by mutableStateOf(AppColorScheme.fromId(configRepository.getColorScheme()))
 
         var showSplashOverlay by mutableStateOf(true)
 
         setContent {
             Box(modifier = Modifier.fillMaxSize()) {
-                ZetlaTheme(darkMode = isDarkMode) {
+                ZetlaTheme(darkMode = isDarkMode, appColorScheme = appColorScheme) {
                     Surface(modifier = Modifier.fillMaxSize()) {
                         val navController = rememberNavController()
                         ZetlaNavHost(
                             navController = navController,
-                            onThemeChanged = { dark -> isDarkMode = dark }
+                            onThemeChanged = { dark -> isDarkMode = dark },
+                            onColorSchemeChanged = { scheme -> appColorScheme = scheme }
                         )
                     }
                 }

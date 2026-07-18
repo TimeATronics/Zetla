@@ -225,11 +225,7 @@ namespace zetla::session {
     core::LLMRequest SessionManager::build_request(Session* sess, const std::string& user_message) {
         core::LLMRequest req;
         req.model = sess->model;
-        // Use global system prompt (set dynamically with date + tool info) instead of session-stored one
-        req.system_prompt = zetla::core::get_config().system_prompt;
-        if (req.system_prompt.empty()) {
-            req.system_prompt = sess->history.system_prompt();
-        }
+        req.system_prompt = sess->history.system_prompt();
         req.messages = sess->history.build_payload();
         req.generation = sess->options.generation;
         req.provider_options = sess->options.provider_options;
@@ -248,6 +244,11 @@ namespace zetla::session {
             [&](const core::StreamChunk& chunk) {
                 if (!chunk.is_finished) {
                     full_response += chunk.delta_content;
+                }
+                if (chunk.is_finished) {
+                    ZLOGI("[LLM] stream finished: total=%zu chars reasoning=%zu chars",
+                        full_response.size(), chunk.reasoning.size());
+                    ZLOGI("[LLM] response (first 500): %s", log::truncate(full_response, 500).c_str());
                 }
                 callback(chunk);
             });
@@ -319,6 +320,7 @@ namespace zetla::session {
 
                 core::LLMRequest current_req;
                 current_req.model = req.model;
+                current_req.system_prompt = req.system_prompt;
                 current_req.messages = msgs;
                 current_req.generation = req.generation;
                 current_req.provider_options = req.provider_options;
@@ -329,6 +331,13 @@ namespace zetla::session {
                 if (resp.finish_reason == "error") {
                     full_response = "Error: " + resp.content;
                     break;
+                }
+
+                ZLOGI("[LLM] sync response: finish=%s reasoning=%zu chars content=%zu chars%s",
+                    resp.finish_reason.c_str(), resp.reasoning.size(), resp.content.size(),
+                    resp.has_tool_calls ? (" tools=" + std::to_string(resp.tool_calls.size())).c_str() : "");
+                if (!resp.content.empty()) {
+                    ZLOGI("[LLM] content (first 400): %s", log::truncate(resp.content, 400).c_str());
                 }
 
                 // Send reasoning to UI thinking block
@@ -344,20 +353,32 @@ namespace zetla::session {
                     msgs.push_back(assistant_msg);
 
                     for (auto& tc : resp.tool_calls) {
+                        ZLOGI("[AGENT] tool_call: name=%s id=%s args=%s",
+                            tc.name.c_str(), tc.id.c_str(), log::truncate(tc.arguments_json, 500).c_str());
+
                         core::ToolCallResult tcr;
                         tcr.tool_call_id = tc.id;
 
-                        // Check builtin C++ executors first (WebSearchTool, etc.)
                         auto builtin = std::find_if(sess->tool_executors.begin(), sess->tool_executors.end(),
                             [&](auto& exec) { return exec->name() == tc.name; });
                         if (builtin != sess->tool_executors.end()) {
                             tcr = (*builtin)->execute(core::ToolCallRequest{tc.id, tc.name, tc.arguments_json});
+                            ZLOGI("[AGENT] tool_result: name=%s success=%d content_len=%zu",
+                                tc.name.c_str(), !tcr.is_error, tcr.content.size());
                         } else if (sess->tool_executor) {
-                            // Java-side tool executor (Python coding tool, etc.)
                             tcr = sess->tool_executor(core::ToolCallRequest{tc.id, tc.name, tc.arguments_json});
+                            ZLOGI("[AGENT] tool_result: name=%s success=%d content_len=%zu",
+                                tc.name.c_str(), !tcr.is_error, tcr.content.size());
                         } else {
                             tcr.content = "{}";
                             tcr.is_error = true;
+                            ZLOGW("[AGENT] tool_result: name=%s NOT_FOUND (no executor registered)", tc.name.c_str());
+                        }
+
+                        if (!tcr.is_error) {
+                            ZLOGI("[AGENT] tool_output (first 300): %s", log::truncate(tcr.content, 300).c_str());
+                        } else {
+                            ZLOGE("[AGENT] tool_error: name=%s error=%s", tc.name.c_str(), log::truncate(tcr.content, 300).c_str());
                         }
 
                         core::Message tool_msg;
@@ -367,6 +388,7 @@ namespace zetla::session {
                         msgs.push_back(tool_msg);
                     }
 
+                    ZLOGI("[AGENT] iteration %d/%d complete", tool_iterations + 1, max_tool_iterations);
                     tool_iterations++;
                 } else {
                     full_response = resp.content;
@@ -627,6 +649,17 @@ namespace zetla::session {
         auto it = sessions_.find(session_id);
         if (it == sessions_.end()) return core::ChatOptions::defaults();
         return it->second->options;
+    }
+
+    bool SessionManager::set_session_system_prompt(
+        const std::string& session_id,
+        const std::string& system_prompt
+    ) {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        auto it = sessions_.find(session_id);
+        if (it == sessions_.end()) return false;
+        it->second->history.set_system_prompt(system_prompt);
+        return true;
     }
 
     bool SessionManager::set_session_model(

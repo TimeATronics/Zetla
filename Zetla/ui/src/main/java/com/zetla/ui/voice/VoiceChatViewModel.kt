@@ -33,7 +33,12 @@ data class VoiceChatUiState(
     val error: String? = null,
     val modelLoaded: Boolean = false,
     val sessionId: String = "",
-    val messages: List<ChatMessage> = emptyList()
+    val messages: List<ChatMessage> = emptyList(),
+    val selectedModel: Model = Model("", ""),
+    val models: List<Model> = emptyList(),
+    val isWebSearchEnabled: Boolean = false,
+    val isCodingEnabled: Boolean = false,
+    val reasoningEffort: String = ""
 )
 
 @HiltViewModel
@@ -56,6 +61,7 @@ class VoiceChatViewModel @Inject constructor(
         voiceService = VoiceRecognitionService(application)
         tts = TextToSpeech(application, this)
         viewModelScope.launch {
+            loadModels()
             val apiKey = configRepository.getApiKey()
             if (apiKey.isNotBlank()) createSession()
         }
@@ -64,7 +70,34 @@ class VoiceChatViewModel @Inject constructor(
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             ttsInitialized = true
+            restoreTtsVoice()
             Log.d(TAG, "TTS initialized")
+        }
+    }
+
+    private fun restoreTtsVoice() {
+        val savedVoiceName = configRepository.getTtsVoice()
+        if (savedVoiceName.isNotBlank()) {
+            val voice = tts?.voices?.find { it.name == savedVoiceName }
+            if (voice != null) {
+                tts?.setVoice(voice)
+                Log.d(TAG, "Restored TTS voice: $savedVoiceName")
+            }
+        }
+    }
+
+    private suspend fun loadModels() {
+        val models = configRepository.fetchAllProviderModels()
+        val saved = configRepository.getModel()
+        val selected = models.find { it.id == saved } ?: models.firstOrNull() ?: Model("", "")
+        _uiState.update { it.copy(models = models, selectedModel = selected) }
+    }
+
+    fun selectModel(model: Model) {
+        _uiState.update { it.copy(selectedModel = model) }
+        configRepository.setModel(model.id)
+        if (model.provider.isNotEmpty()) {
+            configRepository.setProvider(model.provider)
         }
     }
 
@@ -92,14 +125,9 @@ class VoiceChatViewModel @Inject constructor(
                     append(datePrompt)
                 }
 
-                var modelStr = configRepository.getModel()
-                val provider = configRepository.getProvider()
-                // Use a model compatible with the active provider
-                if (modelStr.isBlank() || !modelStr.contains(provider.replace("_", ""), ignoreCase = true)) {
-                    val allModels = configRepository.fetchAllProviderModels()
-                    val compat = allModels.firstOrNull { it.provider == provider }
-                    if (compat != null) modelStr = compat.id
-                }
+                val model = _uiState.value.selectedModel
+                val modelStr = if (model.id.isNotBlank()) model.id else configRepository.getModel()
+                    .ifEmpty { "deepseek-v4-flash" }
 
                 val conversation = chatRepository.createConversation(
                     title = "Voice Chat",
@@ -119,16 +147,12 @@ class VoiceChatViewModel @Inject constructor(
             override fun onPartialResult(text: String) {
                 _uiState.update { it.copy(partialText = text) }
             }
-
             override fun onResult(text: String) {
-                // Just store the final text, don't process yet — wait for onFinalResult or stop
                 _uiState.update { it.copy(transcript = text, partialText = "") }
             }
-
             override fun onError(error: String) {
                 _uiState.update { it.copy(error = error) }
             }
-
             override fun onReady() {
                 _uiState.update { it.copy(modelLoaded = true) }
             }
@@ -154,36 +178,36 @@ class VoiceChatViewModel @Inject constructor(
                     }
                 }
             }
-
             override fun onResult(hypothesis: String?) {
                 hypothesis?.let { text ->
                     val final = extractTextFromJson(text)
                     if (final.isNotBlank()) {
-                        _uiState.update { it.copy(partialText = "", transcript = final) }
+                        val existing = _uiState.value.transcript
+                        val appended = if (existing.isNotBlank()) "$existing $final" else final
+                        _uiState.update { it.copy(partialText = "", transcript = appended) }
                     }
                 }
             }
-
             override fun onFinalResult(hypothesis: String?) {
                 hypothesis?.let { text ->
                     val final = extractTextFromJson(text)
                     if (final.isNotBlank()) {
+                        val existing = _uiState.value.transcript
+                        val appended = if (existing.isNotBlank()) "$existing $final" else final
                         _uiState.update { it.copy(
                             partialText = "",
-                            transcript = final,
+                            transcript = appended,
                             isListening = false
                         )}
-                        processTranscript(final)
+                        processTranscript(appended)
                     }
                 }
             }
-
             override fun onError(exception: Exception?) {
                 Log.e(TAG, "Recognition error", exception)
                 _uiState.update { it.copy(isListening = false,
                     error = "Recognition error: ${exception?.message}") }
             }
-
             override fun onTimeout() {
                 _uiState.update { it.copy(isListening = false) }
             }
@@ -199,6 +223,79 @@ class VoiceChatViewModel @Inject constructor(
         }
     }
 
+    private val _snackbarEvent = MutableStateFlow<String?>(null)
+    val snackbarEvent: StateFlow<String?> = _snackbarEvent
+
+    fun toggleWebSearch() {
+        val newEnabled = !_uiState.value.isWebSearchEnabled
+        _uiState.update { it.copy(isWebSearchEnabled = newEnabled) }
+        _snackbarEvent.value = if (newEnabled) "Web search enabled" else "Web search disabled"
+        viewModelScope.launch {
+            chatRepository.setSessionWebSearch(sessionId, newEnabled)
+            rebuildSessionSystemPrompt()
+        }
+    }
+
+    fun toggleCoding() {
+        val newEnabled = !_uiState.value.isCodingEnabled
+        _uiState.update { it.copy(isCodingEnabled = newEnabled) }
+        _snackbarEvent.value = if (newEnabled) "Coding tools enabled" else "Coding tools disabled"
+        viewModelScope.launch {
+            rebuildSessionSystemPrompt()
+        }
+    }
+
+    private suspend fun rebuildSessionSystemPrompt() {
+        if (sessionId.isBlank()) return
+        val state = _uiState.value
+        val userPrompt = configRepository.getSystemPrompt()
+        val toolParts = mutableListOf<String>()
+        if (state.isWebSearchEnabled) {
+            toolParts.add("""
+You have access to the web_search tool with two modes:
+  1. mode='search' + query → get search results (titles, URLs, snippets)
+  2. mode='fetch' + url → get the full content of a web page
+
+When to use each mode:
+• "who won the latest match" → use search mode
+• "what's the weather in Paris" → use search mode
+• "I need the full article from this link https://..." → use fetch mode to read the entire page
+• "summarize this page: https://..." → use fetch mode
+• "latest news about AI" → use search, then fetch promising URLs for deeper info
+
+The search tool returns titles, URLs and snippets. Use fetch mode with specific URLs to get complete page content.
+""".trimIndent())
+        }
+        if (state.isCodingEnabled) {
+            toolParts.add("""
+You have access to the run_code tool (Python, standard library only). Use it for computation, data processing, and verification.
+
+When to use run_code:
+• "calculate 15% tip on $47.50" → compute the exact amount
+• "what's 2^10" → compute powers
+• "convert 100 USD to EUR at rate 0.92" → do the conversion
+• "sort these numbers: 42, 7, 19, 3" → run a quick sort
+• "is 97 prime?" → check primality
+
+Available modules: math, decimal, fractions, random, json, re, collections, itertools, functools.
+No pip, no internet, no filesystem access.
+""".trimIndent())
+        }
+        val voiceBase = "You are in a voice conversation. The user's speech was converted to text by automatic speech recognition and may contain transcription errors. Be tolerant of such errors, ask for clarification if needed, and answer naturally. Keep responses concise and suitable for spoken delivery. Do not use markdown formatting, emojis, or complex symbols."
+        val now = java.text.SimpleDateFormat("EEEE, MMMM d, yyyy", java.util.Locale.US).format(java.util.Date())
+        val prompt = buildString {
+            if (userPrompt.isNotBlank()) {
+                append(userPrompt); append("\n\n")
+            }
+            append(voiceBase)
+            if (toolParts.isNotEmpty()) {
+                append("\n\n"); append(toolParts.joinToString("\n"))
+            }
+            append("\n\nCurrent date: $now.")
+        }
+        chatRepository.setSessionSystemPrompt(sessionId, prompt)
+    }
+
     private fun processTranscript(text: String) {
         if (sessionId.isBlank() || isProcessingTranscript || text.isBlank()) return
         isProcessingTranscript = true
@@ -211,23 +308,32 @@ class VoiceChatViewModel @Inject constructor(
                     state.copy(messages = state.messages + ChatMessage(role = Role.USER, content = text))
                 }
 
+                val model = _uiState.value.selectedModel
+                val modelId = if (model.id.isNotBlank()) model.id else configRepository.getModel()
+
+                val params = configRepository.getDefaultParams()
+                if (sessionId.isNotBlank()) {
+                    chatRepository.setSessionOptions(sessionId, params.toOptionsJson())
+                }
+
                 val response = StringBuilder()
                 chatRepository.sendMessageFull(
                     sessionId = sessionId,
                     message = text,
-                    model = configRepository.getModel(),
+                    model = modelId,
                     onToken = { content, _ ->
                         if (content != null) {
                             response.append(content)
-                            _uiState.update { it.copy(responseText = response.toString()) }
+                            _uiState.update { it.copy(responseText = stripMarkdownForTts(response.toString())) }
                         }
                     },
                     onFinished = {
-                        val finalResponse = response.toString()
+                        val finalResponse = stripMarkdownForTts(response.toString())
                         _uiState.update { state ->
                             state.copy(
                                 messages = state.messages + ChatMessage(role = Role.ASSISTANT, content = finalResponse),
-                                isProcessing = false
+                                isProcessing = false,
+                                responseText = ""
                             )
                         }
                         isProcessingTranscript = false
@@ -243,7 +349,6 @@ class VoiceChatViewModel @Inject constructor(
 
     private fun speakResponse(text: String) {
         if (!ttsInitialized || text.isBlank()) return
-        // Don't stop previous TTS - let it queue naturally
         _uiState.update { it.copy(isSpeaking = true) }
 
         val utteranceId = UUID.randomUUID().toString()
@@ -262,6 +367,13 @@ class VoiceChatViewModel @Inject constructor(
         _uiState.update { it.copy(isSpeaking = false) }
     }
 
+    fun stopResponse() {
+        chatRepository.cancelRequest()
+        tts?.stop()
+        isProcessingTranscript = false
+        _uiState.update { it.copy(isProcessing = false, isSpeaking = false, isListening = false) }
+    }
+
     fun clearError() {
         _uiState.update { it.copy(error = null) }
     }
@@ -272,6 +384,27 @@ class VoiceChatViewModel @Inject constructor(
         } catch (_: Exception) {
             json
         }
+    }
+
+    private fun stripMarkdownForTts(text: String): String {
+        return text
+            .replace(Regex("```[\\s\\S]*?```"), "")
+            .replace(Regex("`([^`]+)`"), "$1")
+            .replace(Regex("\\*\\*\\*(.+?)\\*\\*\\*"), "$1")
+            .replace(Regex("___(.+?)___"), "$1")
+            .replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
+            .replace(Regex("__(.+?)__"), "$1")
+            .replace(Regex("\\*(.+?)\\*"), "$1")
+            .replace(Regex("_(.+?)_"), "$1")
+            .replace(Regex("~~(.+?)~~"), "$1")
+            .replace(Regex("\\[([^\\]]+)\\]\\([^)]+\\)"), "$1")
+            .replace(Regex("^#{1,6}\\s+", RegexOption.MULTILINE), "")
+            .replace(Regex("^\\s*[-*+]>\\s+", RegexOption.MULTILINE), "")
+            .replace(Regex("^\\s*[-*+]\\s+", RegexOption.MULTILINE), "")
+            .replace(Regex("^\\s*\\d+\\.\\s+", RegexOption.MULTILINE), "")
+            .replace(Regex("^\\s*[-_*]{3,}\\s*$", RegexOption.MULTILINE), "")
+            .replace(Regex("\\|"), "")
+            .trim()
     }
 
     override fun onCleared() {

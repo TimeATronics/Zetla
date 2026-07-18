@@ -130,7 +130,7 @@ namespace zetla::protocols::openai_chat {
             }
         }
 
-        return body.dump();
+        return body.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
     }
 
     inline std::vector<core::LLMEvent> parse_sse_event(

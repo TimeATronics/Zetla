@@ -727,7 +727,7 @@ static void test_web_search_exa() {
     }
 
     // Restore default search provider
-    zetla_set_search_provider("duckduckgo");
+    zetla_set_search_provider("exa");
 
     zetla_response del_resp = zetla_delete_session(sid.c_str());
     zetla_free_response(&del_resp);

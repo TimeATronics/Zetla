@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.zetla.domain.model.FileAttachment
+import com.zetla.domain.model.FileType
 import com.zetla.domain.model.Model
 
 @Composable
@@ -56,7 +57,8 @@ fun ChatInputTextField(
     attachedFiles: List<FileAttachment> = emptyList(),
     onAttachFile: () -> Unit = {},
     onRemoveFile: (String) -> Unit = {},
-    onShowAttachments: () -> Unit = {}
+    onShowAttachments: () -> Unit = {},
+    onImageClick: (String) -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var lineCount by remember { mutableIntStateOf(1) }
@@ -74,7 +76,11 @@ fun ChatInputTextField(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 attachedFiles.forEach { file ->
-                    FileChip(file = file, onRemove = { onRemoveFile(file.id) })
+                    FileChip(
+                        file = file,
+                        onRemove = { onRemoveFile(file.id) },
+                        onClick = if (file.type == FileType.IMAGE) {{ onImageClick(file.path) }} else null
+                    )
                 }
             }
         }
@@ -214,9 +220,9 @@ fun ChatInputTextField(
                         onModelClick()
                     }
                 )
-                if (attachedFiles.size < 5) {
+                if (attachedFiles.isEmpty()) {
                     DropdownMenuItem(
-                        text = { Text("Upload Files") },
+                        text = { Text("Upload File") },
                         leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
                         onClick = {
                             menuExpanded = false

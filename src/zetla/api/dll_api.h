@@ -54,6 +54,7 @@ ZETLA_API zetla_response zetla_get_default_options(void);
 
 ZETLA_API void zetla_set_system_prompt(const char* system_prompt);
 ZETLA_API zetla_response zetla_get_system_prompt(void);
+ZETLA_API zetla_response zetla_set_session_system_prompt(const char* session_id, const char* system_prompt);
 
 ZETLA_API void zetla_set_provider_config(const char* provider_id, const char* api_key, const char* base_url, int enabled);
 ZETLA_API zetla_response zetla_get_provider_config(const char* provider_id);

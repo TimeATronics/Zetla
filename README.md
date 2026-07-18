@@ -63,7 +63,7 @@ Builds static OpenSSL and libcurl for arm64-v8a and armeabi-v7a.
 The Python binary is a static build of CPython 3.14.6 for Android, built using the reproducible build system at `~/zetla_android_build/`. See `docs/PYTHON_ANDROID_BUILD.md` for complete build documentation.
 
 ```bash
-# In WSL Ubuntu — full build (deps + cpython + package)
+# In WSL Ubuntu - full build (deps + cpython + package)
 wsl -d Ubuntu-26.04 bash -c 'cd ~/zetla_android_build && ./build_all.sh --clean'
 
 # Or step by step:
@@ -111,6 +111,12 @@ Set in `Zetla/ui/src/main/java/com/zetla/app/ZetlaApp.kt` or via the app's setti
 - `OPENCODE_API_KEY` - OpenCode Zen
 - `DEEPSEEK_API_KEY` - DeepSeek
 - `NVIDIA_API_KEY` - NVIDIA NIM
+
+## TODO
+
+- **Model capabilities not shown correctly** — vision, reasoning, and other capability flags from C++ providers are not reliably reflected in the Kotlin `ModelCapabilities` data class and ModelSelectionSheet UI.
+- **Thinking level selection does not work** — `thinking_levels` are returned by providers but the reasoning effort chip selection in the UI does not apply correctly to API requests.
+- **Local RAG Corpus** for multiple large document file support with tool definition for LLM to utilize the same.
 
 ## License
 
