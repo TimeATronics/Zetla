@@ -12,10 +12,15 @@ import com.zetla.domain.repository.ChatRepository
 import com.zetla.domain.repository.ConfigRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import org.vosk.android.RecognitionListener
 import java.util.UUID
@@ -32,6 +37,7 @@ data class VoiceChatUiState(
     val responseText: String = "",
     val error: String? = null,
     val modelLoaded: Boolean = false,
+    val isModelLoading: Boolean = true,
     val sessionId: String = "",
     val messages: List<ChatMessage> = emptyList(),
     val selectedModel: Model = Model("", ""),
@@ -56,14 +62,21 @@ class VoiceChatViewModel @Inject constructor(
     private var ttsInitialized = false
     private var sessionId: String = ""
     private var isProcessingTranscript = false
+    private val transcriptMutex = Mutex()
+
+    private val _snackbarEvent = MutableSharedFlow<String>(extraBufferCapacity = 2)
+    val snackbarEvent: SharedFlow<String> = _snackbarEvent.asSharedFlow()
 
     init {
         voiceService = VoiceRecognitionService(application)
         tts = TextToSpeech(application, this)
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             loadModels()
             val apiKey = configRepository.getApiKey()
             if (apiKey.isNotBlank()) createSession()
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            loadModelBackground()
         }
     }
 
@@ -87,18 +100,14 @@ class VoiceChatViewModel @Inject constructor(
     }
 
     private suspend fun loadModels() {
-        val models = configRepository.fetchAllProviderModels()
         val saved = configRepository.getModel()
+        val savedProvider = configRepository.getProvider()
+        val models = configRepository.fetchAllProviderModels()
         val selected = models.find { it.id == saved } ?: models.firstOrNull() ?: Model("", "")
-        _uiState.update { it.copy(models = models, selectedModel = selected) }
-    }
-
-    fun selectModel(model: Model) {
-        _uiState.update { it.copy(selectedModel = model) }
-        configRepository.setModel(model.id)
-        if (model.provider.isNotEmpty()) {
-            configRepository.setProvider(model.provider)
+        if (selected.provider.isNotEmpty() && selected.provider != savedProvider) {
+            configRepository.setProvider(selected.provider)
         }
+        _uiState.update { it.copy(models = models, selectedModel = selected) }
     }
 
     private fun createSession() {
@@ -142,7 +151,23 @@ class VoiceChatViewModel @Inject constructor(
         }
     }
 
-    fun loadModel() {
+    fun selectModel(model: Model) {
+        _uiState.update { it.copy(selectedModel = model) }
+        configRepository.setModel(model.id)
+        if (model.provider.isNotEmpty()) {
+            configRepository.setProvider(model.provider)
+        }
+    }
+
+    fun retryLoadModels() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isModelLoading = true) }
+            loadModels()
+            _uiState.update { it.copy(isModelLoading = false) }
+        }
+    }
+
+    private suspend fun loadModelBackground() {
         voiceService?.loadModel(object : VoiceRecognitionService.VoiceCallback {
             override fun onPartialResult(text: String) {
                 _uiState.update { it.copy(partialText = text) }
@@ -151,10 +176,29 @@ class VoiceChatViewModel @Inject constructor(
                 _uiState.update { it.copy(transcript = text, partialText = "") }
             }
             override fun onError(error: String) {
-                _uiState.update { it.copy(error = error) }
+                _uiState.update { it.copy(error = error, isModelLoading = false) }
             }
             override fun onReady() {
-                _uiState.update { it.copy(modelLoaded = true) }
+                _uiState.update { it.copy(modelLoaded = true, isModelLoading = false) }
+            }
+        })
+    }
+
+    fun loadModel() {
+        if (_uiState.value.isModelLoading) return
+        _uiState.update { it.copy(isModelLoading = true) }
+        voiceService?.loadModel(object : VoiceRecognitionService.VoiceCallback {
+            override fun onPartialResult(text: String) {
+                _uiState.update { it.copy(partialText = text) }
+            }
+            override fun onResult(text: String) {
+                _uiState.update { it.copy(transcript = text, partialText = "") }
+            }
+            override fun onError(error: String) {
+                _uiState.update { it.copy(error = error, isModelLoading = false) }
+            }
+            override fun onReady() {
+                _uiState.update { it.copy(modelLoaded = true, isModelLoading = false) }
             }
         })
     }
@@ -223,25 +267,26 @@ class VoiceChatViewModel @Inject constructor(
         }
     }
 
-    private val _snackbarEvent = MutableStateFlow<String?>(null)
-    val snackbarEvent: StateFlow<String?> = _snackbarEvent
-
     fun toggleWebSearch() {
         val newEnabled = !_uiState.value.isWebSearchEnabled
         _uiState.update { it.copy(isWebSearchEnabled = newEnabled) }
-        _snackbarEvent.value = if (newEnabled) "Web search enabled" else "Web search disabled"
+        _snackbarEvent.tryEmit(if (newEnabled) "Web search enabled" else "Web search disabled")
         viewModelScope.launch {
-            chatRepository.setSessionWebSearch(sessionId, newEnabled)
-            rebuildSessionSystemPrompt()
+            if (sessionId.isNotBlank()) {
+                chatRepository.setSessionWebSearch(sessionId, newEnabled)
+                rebuildSessionSystemPrompt()
+            }
         }
     }
 
     fun toggleCoding() {
         val newEnabled = !_uiState.value.isCodingEnabled
         _uiState.update { it.copy(isCodingEnabled = newEnabled) }
-        _snackbarEvent.value = if (newEnabled) "Coding tools enabled" else "Coding tools disabled"
+        _snackbarEvent.tryEmit(if (newEnabled) "Coding tools enabled" else "Coding tools disabled")
         viewModelScope.launch {
-            rebuildSessionSystemPrompt()
+            if (sessionId.isNotBlank()) {
+                rebuildSessionSystemPrompt()
+            }
         }
     }
 
@@ -253,15 +298,15 @@ class VoiceChatViewModel @Inject constructor(
         if (state.isWebSearchEnabled) {
             toolParts.add("""
 You have access to the web_search tool with two modes:
-  1. mode='search' + query → get search results (titles, URLs, snippets)
-  2. mode='fetch' + url → get the full content of a web page
+  1. mode='search' + query -> get search results (titles, URLs, snippets)
+  2. mode='fetch' + url -> get the full content of a web page
 
 When to use each mode:
-• "who won the latest match" → use search mode
-• "what's the weather in Paris" → use search mode
-• "I need the full article from this link https://..." → use fetch mode to read the entire page
-• "summarize this page: https://..." → use fetch mode
-• "latest news about AI" → use search, then fetch promising URLs for deeper info
+- "who won the latest match" -> use search mode
+- "what's the weather in Paris" -> use search mode
+- "I need the full article from this link https://..." -> use fetch mode to read the entire page
+- "summarize this page: https://..." -> use fetch mode
+- "latest news about AI" -> use search, then fetch promising URLs for deeper info
 
 The search tool returns titles, URLs and snippets. Use fetch mode with specific URLs to get complete page content.
 """.trimIndent())
@@ -271,11 +316,11 @@ The search tool returns titles, URLs and snippets. Use fetch mode with specific 
 You have access to the run_code tool (Python, standard library only). Use it for computation, data processing, and verification.
 
 When to use run_code:
-• "calculate 15% tip on $47.50" → compute the exact amount
-• "what's 2^10" → compute powers
-• "convert 100 USD to EUR at rate 0.92" → do the conversion
-• "sort these numbers: 42, 7, 19, 3" → run a quick sort
-• "is 97 prime?" → check primality
+- "calculate 15% tip on $47.50" -> compute the exact amount
+- "what's 2^10" -> compute powers
+- "convert 100 USD to EUR at rate 0.92" -> do the conversion
+- "sort these numbers: 42, 7, 19, 3" -> run a quick sort
+- "is 97 prime?" -> check primality
 
 Available modules: math, decimal, fractions, random, json, re, collections, itertools, functools.
 No pip, no internet, no filesystem access.
@@ -301,48 +346,55 @@ No pip, no internet, no filesystem access.
         isProcessingTranscript = true
 
         viewModelScope.launch(Dispatchers.IO) {
-            _uiState.update { it.copy(isProcessing = true, responseText = "") }
+            transcriptMutex.withLock {
+                isProcessingTranscript = true
+                _uiState.update { it.copy(isProcessing = true, responseText = "") }
 
-            try {
-                _uiState.update { state ->
-                    state.copy(messages = state.messages + ChatMessage(role = Role.USER, content = text))
-                }
-
-                val model = _uiState.value.selectedModel
-                val modelId = if (model.id.isNotBlank()) model.id else configRepository.getModel()
-
-                val params = configRepository.getDefaultParams()
-                if (sessionId.isNotBlank()) {
-                    chatRepository.setSessionOptions(sessionId, params.toOptionsJson())
-                }
-
-                val response = StringBuilder()
-                chatRepository.sendMessageFull(
-                    sessionId = sessionId,
-                    message = text,
-                    model = modelId,
-                    onToken = { content, _ ->
-                        if (content != null) {
-                            response.append(content)
-                            _uiState.update { it.copy(responseText = stripMarkdownForTts(response.toString())) }
-                        }
-                    },
-                    onFinished = {
-                        val finalResponse = stripMarkdownForTts(response.toString())
-                        _uiState.update { state ->
-                            state.copy(
-                                messages = state.messages + ChatMessage(role = Role.ASSISTANT, content = finalResponse),
-                                isProcessing = false,
-                                responseText = ""
-                            )
-                        }
-                        isProcessingTranscript = false
-                        speakResponse(finalResponse)
+                try {
+                    _uiState.update { state ->
+                        state.copy(messages = state.messages + ChatMessage(role = Role.USER, content = text))
                     }
-                )
-            } catch (e: Exception) {
-                isProcessingTranscript = false
-                _uiState.update { it.copy(isProcessing = false, error = "Failed: ${e.message}") }
+
+                    val model = _uiState.value.selectedModel
+                    val modelId = if (model.id.isNotBlank()) model.id else configRepository.getModel()
+
+                    val params = configRepository.getDefaultParams()
+                    if (sessionId.isNotBlank()) {
+                        chatRepository.setSessionOptions(sessionId, params.toOptionsJson())
+                    }
+
+                    val response = StringBuilder()
+                    chatRepository.sendMessageFull(
+                        sessionId = sessionId,
+                        message = text,
+                        model = modelId,
+                        onToken = { content, _ ->
+                            if (content != null) {
+                                response.append(content)
+                                _uiState.update { it.copy(responseText = stripMarkdownForTts(response.toString())) }
+                            }
+                        },
+                        onFinished = {
+                            val finalResponse = stripMarkdownForTts(response.toString())
+                            if (finalResponse.isNotBlank()) {
+                                _uiState.update { state ->
+                                    state.copy(
+                                        messages = state.messages + ChatMessage(role = Role.ASSISTANT, content = finalResponse),
+                                        isProcessing = false,
+                                        responseText = ""
+                                    )
+                                }
+                                speakResponse(finalResponse)
+                            } else {
+                                _uiState.update { it.copy(isProcessing = false) }
+                            }
+                        }
+                    )
+                } catch (e: Exception) {
+                    _uiState.update { it.copy(isProcessing = false, error = "Failed: ${e.message}") }
+                } finally {
+                    isProcessingTranscript = false
+                }
             }
         }
     }

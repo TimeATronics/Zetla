@@ -218,6 +218,8 @@ namespace zetla::network {
                 return false;
             }
 
+            g_abort_flag.store(false);
+
             ZLOGI("post_sync: URL=%s body=%s", url.c_str(), log::truncate(body, 1000).c_str());
             ZLOGI("post_sync: api_key=%s", log::mask_key(api_key).c_str());
 
@@ -250,6 +252,14 @@ namespace zetla::network {
             curl_easy_setopt(curl, CURLOPT_PROGRESSFUNCTION, abort_progress_callback);
             curl_easy_setopt(curl, CURLOPT_PROGRESSDATA, nullptr);
 
+            if (g_abort_flag.load()) {
+                error_out = "Request cancelled";
+                ZLOGI("post_sync: request cancelled before send");
+                curl_slist_free_all(headers);
+                curl_easy_cleanup(curl);
+                return false;
+            }
+
             CURLcode res = curl_easy_perform(curl);
 
             long http_code = 0;
@@ -258,7 +268,10 @@ namespace zetla::network {
             bool ok = (res == CURLE_OK && http_code < 400);
 
             if (!ok) {
-                if (res != CURLE_OK) {
+                if (g_abort_flag.load()) {
+                    error_out = "";
+                    ZLOGI("post_sync: request cancelled by user");
+                } else if (res != CURLE_OK) {
                     error_out = curl_easy_strerror(res);
                     ZLOGE("post_sync: CURL error=%s", error_out.c_str());
                 } else {

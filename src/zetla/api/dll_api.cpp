@@ -369,6 +369,8 @@ ZETLA_API int zetla_send_message(const char* session_id, const char* message, ze
     if (!g_manager || !callback) return 0;
     if (!session_id || !message) return 0;
 
+    zetla::network::HttpClient::request_reset();
+
     std::string sid(session_id);
     std::string err;
     ZLOGI("send_message: session=%s message=%s", sid.c_str(), zetla::log::truncate(message, 200).c_str());
@@ -405,6 +407,8 @@ ZETLA_API int zetla_send_message(const char* session_id, const char* message, ze
 ZETLA_API int zetla_send_message_sse(const char* session_id, const char* message, zetla_sse_fn callback) {
     if (!g_manager || !callback) return 0;
     if (!session_id || !message) return 0;
+
+    zetla::network::HttpClient::request_reset();
 
     std::string sid(session_id);
     std::string err;
@@ -647,6 +651,8 @@ ZETLA_API int zetla_send_message_with_images(
     if (!g_manager || !callback) return 0;
     if (!session_id || !message) return 0;
 
+    zetla::network::HttpClient::request_reset();
+
     std::string sid(session_id);
     std::string err;
 
@@ -688,6 +694,8 @@ ZETLA_API int zetla_send_message_with_images_sse(
     if (!g_manager || !callback) return 0;
     if (!session_id || !message) return 0;
 
+    zetla::network::HttpClient::request_reset();
+
     std::string sid(session_id);
     std::string err;
 
@@ -725,6 +733,8 @@ ZETLA_API int zetla_send_message_agentic(
 ) {
     if (!g_manager || !callback) return 0;
     if (!session_id || !message) return 0;
+
+    zetla::network::HttpClient::request_reset();
 
     std::string sid(session_id);
     std::string err;
@@ -856,6 +866,8 @@ ZETLA_API int zetla_send_message_with_files(
 ) {
     if (!g_manager || !callback) return 0;
     if (!session_id || !message) return 0;
+
+    zetla::network::HttpClient::request_reset();
 
     std::string sid(session_id);
     std::string err;

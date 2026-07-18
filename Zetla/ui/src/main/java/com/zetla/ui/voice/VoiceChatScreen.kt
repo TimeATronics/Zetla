@@ -86,8 +86,11 @@ fun VoiceChatScreen(
     }
 
     LaunchedEffect(Unit) {
-        if (hasPermission) viewModel.loadModel()
-        else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        if (hasPermission) {
+            // Model loading already started in init{} on IO, no need to call loadModel() here
+        } else {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     LaunchedEffect(uiState.error) {
@@ -99,9 +102,7 @@ fun VoiceChatScreen(
 
     LaunchedEffect(Unit) {
         viewModel.snackbarEvent.collect { msg ->
-            if (msg != null) {
-                snackbarHostState.showSnackbar(msg)
-            }
+            snackbarHostState.showSnackbar(msg)
         }
     }
 
@@ -261,7 +262,8 @@ fun VoiceChatScreen(
             // Status text below waveform
             Text(
                 text = when {
-                    !uiState.modelLoaded -> "Loading..."
+                    !uiState.modelLoaded && uiState.isModelLoading -> "Loading model..."
+                    !uiState.modelLoaded -> "Tap to load"
                     uiState.isSpeaking -> "Speaking"
                     uiState.isListening && uiState.partialText.isNotBlank() -> uiState.partialText
                     uiState.isListening -> "Listening..."
@@ -298,6 +300,14 @@ fun VoiceChatScreen(
                             text = "$prefix: ${msg.content}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    if (uiState.isListening && uiState.partialText.isNotBlank()) {
+                        Text(
+                            text = "You: ${uiState.partialText}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
