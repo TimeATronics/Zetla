@@ -14,8 +14,8 @@ Zetla/.kotlin/
 # Release APK output
 Zetla/app/release/
 
-# Keystore (secrets - never commit)
-Zetla/app/zetla_release.jks
+# Keystore
+**/zetla_release.jks
 
 # IDE
 .idea/
