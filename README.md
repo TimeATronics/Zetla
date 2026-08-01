@@ -116,7 +116,7 @@ Set in `Zetla/ui/src/main/java/com/zetla/app/ZetlaApp.kt` or via the app's setti
 
 - **Model capabilities not shown correctly** - vision, reasoning, and other capability flags from C++ providers are not reliably reflected in the Kotlin `ModelCapabilities` data class and ModelSelectionSheet UI.
 - **Thinking level selection does not work** - `thinking_levels` are returned by providers but the reasoning effort chip selection in the UI does not apply correctly to API requests.
-- **Local RAG Corpus** for multiple large document file support with tool definition for LLM to utilize the same.
+- **Local RAG Corpus** for multiple large document file support with tool definition for LLM to utilize the same. - DONE (See rag module in zetla cpp source)
 
 ## License
 
