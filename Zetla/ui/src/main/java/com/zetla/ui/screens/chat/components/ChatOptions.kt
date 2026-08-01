@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Icon
@@ -26,7 +27,10 @@ fun ChatOptions(
     conversation: Conversation,
     onClickDelete: () -> Unit,
     onClickRename: () -> Unit,
-    onClickStar: (Boolean) -> Unit
+    onClickStar: (Boolean) -> Unit,
+    isSpace: Boolean = false,
+    hasSpaceFiles: Boolean = false,
+    onClickSpaceFiles: () -> Unit = {}
 ) {
     val isStarred = conversation.isStarred
     Row(
@@ -35,6 +39,16 @@ fun ChatOptions(
             .padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.End
     ) {
+        if (isSpace) {
+            IconButton(onClick = onClickSpaceFiles) {
+                Icon(
+                    imageVector = Icons.Default.Hub,
+                    contentDescription = "Space Files",
+                    tint = if (hasSpaceFiles) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         IconButton(onClick = onClickRename) {
             Icon(
                 imageVector = Icons.Default.Edit,

@@ -35,14 +35,15 @@ import kotlinx.coroutines.withTimeout
 import java.util.UUID
 import javax.inject.Inject
 
-private const val TAG = "ChatViewModel"
+private const val TAG = "ZetlaNative"
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val chatRepository: ChatRepository,
     private val configRepository: ConfigRepository,
-    private val fileRepository: FileRepository
+    private val fileRepository: FileRepository,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context
 ) : ViewModel() {
 
     private var sessionId: String = savedStateHandle["sessionId"] ?: ""
@@ -122,7 +123,7 @@ class ChatViewModel @Inject constructor(
         }
         val userPrompt = configRepository.getSystemPrompt()
         val now = java.text.SimpleDateFormat("EEEE, MMMM d, yyyy", java.util.Locale.US).format(java.util.Date())
-        val dynamicPrompt = buildDynamicPrompt(userPrompt, _uiState.value.isWebSearchEnabled, _uiState.value.isCodingEnabled, now)
+        val dynamicPrompt = buildDynamicPrompt(userPrompt, _uiState.value.isWebSearchEnabled, _uiState.value.isCodingEnabled, _uiState.value.isSpace, now)
         val modelForSession = if (providerForModel.isNotBlank()) Model(modelStr, modelStr, providerForModel) else Model(modelStr, modelStr)
         val conversation = chatRepository.createConversation(
             title = "New Chat",
@@ -163,6 +164,15 @@ class ChatViewModel @Inject constructor(
                 selectConversation(event.conversation)
             }
             is ChatUiEvent.OnNewChat -> newChat()
+            is ChatUiEvent.OnNewSpace -> newSpace()
+            is ChatUiEvent.OnRagToggled -> {} // no-op: always enabled in Space
+            is ChatUiEvent.OnToggleSpaceFiles -> {
+                viewModelScope.launch { refreshSpaceFiles() }
+                _uiState.update { it.copy(showSpaceFiles = true) }
+            }
+            is ChatUiEvent.OnDismissSpaceFiles -> {
+                _uiState.update { it.copy(showSpaceFiles = false) }
+            }
             is ChatUiEvent.OnWebSearchTapped -> {
                 val newEnabled = !_uiState.value.isWebSearchEnabled
                 _uiState.update { it.copy(isWebSearchEnabled = newEnabled) }
@@ -201,8 +211,14 @@ class ChatViewModel @Inject constructor(
             }
             is ChatUiEvent.OnRefreshConfig -> refreshConfig()
             is ChatUiEvent.OnAttachFile -> {
-                if (_uiState.value.attachedFiles.isEmpty()) {
-                    _uiState.update { it.copy(attachedFiles = listOf(event.file)) }
+                if (_uiState.value.isSpace) {
+                    // Space: index for RAG only, do NOT add to chat chips
+                    viewModelScope.launch(Dispatchers.IO) {
+                        indexFileForRag(event.file)
+                        refreshSpaceFiles()
+                    }
+                } else {
+                    _uiState.update { it.copy(attachedFiles = it.attachedFiles + event.file) }
                 }
             }
             is ChatUiEvent.OnRemoveAttachedFile -> {
@@ -224,23 +240,118 @@ class ChatViewModel @Inject constructor(
                     }
                 }
             }
+            is ChatUiEvent.OnSpaceSetupDismiss -> {
+                _uiState.update { it.copy(showSpaceSetup = false) }
+            }
+            is ChatUiEvent.OnSpaceSetupNameChanged -> {
+                _uiState.update { it.copy(spaceSetupName = event.name) }
+            }
+            is ChatUiEvent.OnSpaceSetupFiles -> {
+                val paths = event.files.map { it.path }
+                val names = event.files.map { it.name }
+                _uiState.update { it.copy(
+                    spaceSetupFilePaths = it.spaceSetupFilePaths + paths,
+                    spaceSetupFileNames = it.spaceSetupFileNames + names
+                )}
+            }
+            is ChatUiEvent.OnSpaceSetupConfirm -> {
+                Log.d(TAG, "SpaceSetup: confirm pressed, files=${_uiState.value.spaceSetupFileNames.size}")
+                viewModelScope.launch(Dispatchers.Default) {
+                    _uiState.update { it.copy(isIndexingSpace = true, spaceIndexProgress = "Creating space...") }
+                    val name = _uiState.value.spaceSetupName.ifBlank { "New Space" }
+                    Log.d(TAG, "SpaceSetup: creating session name='$name'")
+                    createSpaceSession(name)
+                    Log.d(TAG, "SpaceSetup: session created id=$sessionId")
+                    
+                    val paths = _uiState.value.spaceSetupFilePaths
+                    val total = paths.size
+                    var indexedCount = 0
+                    for ((idx, path) in paths.withIndex()) {
+                        try {
+                            val f = java.io.File(path)
+                            Log.d(TAG, "SpaceSetup: idx=${idx} path=$path exists=${f.exists()} len=${f.length()}")
+                            _uiState.update { it.copy(spaceIndexProgress = "Reading ${f.name} (${idx+1}/$total)...") }
+                            
+                            val text: String?
+                            if (f.name.endsWith(".pdf")) {
+                                Log.d(TAG, "SpaceSetup: extracting PDF ${f.name}")
+                                val result = fileRepository.extractPdfText(android.net.Uri.fromFile(f))
+                                text = result.data
+                                Log.d(TAG, "SpaceSetup: PDF done, text=${text?.length ?: 0} chars")
+                            } else {
+                                text = f.readText()
+                            }
+                            
+                            if (!text.isNullOrBlank()) {
+                                Log.d(TAG, "SpaceSetup: calling addSpaceFile for ${f.name}")
+                                val result = chatRepository.addSpaceFile(sessionId.replace("-", ""), f.path, text)
+                                Log.d(TAG, "SpaceSetup: addSpaceFile result=$result")
+                                indexedCount++
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "SpaceSetup: error indexing ${path}", e)
+                        }
+                    }
+                    Log.d(TAG, "SpaceSetup: indexed $indexedCount/$total files, refreshing...")
+                    refreshSpaceFiles()
+                    // Save RAG index to disk (Lorentz vectors + chunk texts only, <1MB)
+                    val nativeSid = sessionId.replace("-", "")
+                    val ragDir = java.io.File(appContext.filesDir, "rag_$nativeSid")
+                    ragDir.mkdirs()
+                    val saved = ZetlaCore.nativeSaveRagSession(nativeSid, ragDir.absolutePath)
+                    Log.d(TAG, "SpaceSetup: RAG save to disk=$saved dir=${ragDir.absolutePath}")
+                    _uiState.update { it.copy(showSpaceSetup = false, isIndexingSpace = false, spaceIndexProgress = "") }
+                    Log.d(TAG, "SpaceSetup: complete")
+                }
+            }
         }
     }
 
-    private fun buildDynamicPrompt(userPrompt: String, isWebSearch: Boolean, isCoding: Boolean, dateStr: String): String {
+    private fun buildDynamicPrompt(userPrompt: String, isWebSearch: Boolean, isCoding: Boolean, isSpace: Boolean, dateStr: String): String {
         val toolParts = mutableListOf<String>()
+        
+        if (isSpace) {
+            toolParts.add("""
+You are in a SPACE: a knowledge-augmented chat session. You have access to the search_files tool which searches through all uploaded documents in this space.
+
+Tool: search_files
+  - query: your search query (keep it specific and concise - 3-8 words works best)
+  - top_k: number of results (default 10)
+  
+Before invoking search_files, use the rewrite_query tool to optimize your query for better retrieval:
+  1. Think about what specific terms, phrases, or entity names would appear in the documents
+  2. Expand abbreviations, add synonyms, use domain-specific terminology
+  3. The rewrite_query tool takes your original query and returns a rewritten version
+
+When to use search_files:
+  - User asks about content that may be in the uploaded documents
+  - User asks "what does the document say about X"
+  - User needs specific facts, figures, or passages from files
+  - Any factual query that could benefit from document retrieval
+
+When NOT to use it:
+  - General conversation, greetings, simple math
+  - Questions clearly unrelated to uploaded content
+  - User explicitly asks you NOT to search
+
+Search results return [file_path, chunk_text, similarity_score]. Cite the source file when using retrieved content.
+
+You also have the list_corpus_files tool to see which documents are available in the corpus.
+Use it to understand what files exist before formulating search queries.
+""".trimIndent())
+        }
         if (isWebSearch) {
             toolParts.add("""
 You have access to the web_search tool with two modes:
-  1. mode='search' + query → get search results (titles, URLs, snippets)
-  2. mode='fetch' + url → get the full content of a web page
+  1. mode='search' + query -> get search results (titles, URLs, snippets)
+  2. mode='fetch' + url -> get the full content of a web page
 
 When to use each mode:
-• "who won the latest match" → use search mode
-• "what's the weather in Paris" → use search mode
-• "I need the full article from this link https://..." → use fetch mode to read the entire page
-• "summarize this page: https://..." → use fetch mode
-• "latest news about AI" → use search, then fetch promising URLs for deeper info
+• "who won the latest match" -> use search mode
+• "what's the weather in Paris" -> use search mode
+• "I need the full article from this link https://..." -> use fetch mode to read the entire page
+• "summarize this page: https://..." -> use fetch mode
+• "latest news about AI" -> use search, then fetch promising URLs for deeper info
 
 The search tool returns titles, URLs and snippets. Use fetch mode with specific URLs to get complete page content.
 """.trimIndent())
@@ -250,11 +361,11 @@ The search tool returns titles, URLs and snippets. Use fetch mode with specific 
 You have access to the run_code tool (Python, standard library only). Use it for computation, data processing, and verification.
 
 When to use run_code:
-• "calculate 15% tip on $47.50" → compute the exact amount
-• "what's 2^10" → compute powers
-• "convert 100 USD to EUR at rate 0.92" → do the conversion
-• "sort these numbers: 42, 7, 19, 3" → run a quick sort
-• "is 97 prime?" → check primality
+• "calculate 15% tip on $47.50" -> compute the exact amount
+• "what's 2^10" -> compute powers
+• "convert 100 USD to EUR at rate 0.92" -> do the conversion
+• "sort these numbers: 42, 7, 19, 3" -> run a quick sort
+• "is 97 prime?" -> check primality
 
 Available modules: math, decimal, fractions, random, json, re, collections, itertools, functools.
 No pip, no internet, no filesystem access.
@@ -386,8 +497,8 @@ No pip, no internet, no filesystem access.
             return
         }
 
-        // Auto-title: set title from first user message
-        if (!hasSentMessage) {
+        // Auto-title: set title from first user message (skip for spaces - name set during creation)
+        if (!hasSentMessage && !_uiState.value.isSpace) {
             hasSentMessage = true
             val conv = _uiState.value.selectedConversation
             if (conv != null) {
@@ -460,6 +571,36 @@ No pip, no internet, no filesystem access.
                 }
             }
 
+            // --- RAG search for Space sessions (inject as system context, not user text) ---
+            var ragContext: String? = null
+            if (_uiState.value.isSpace && sessionId.isNotBlank()) {
+                val nativeSid = sessionId.replace("-", "")
+                Log.d(TAG, "RAG search: query=${finalText.take(80)}...")
+                try {
+                    val ragJson = ZetlaCore.nativeRagSearch(nativeSid, finalText, 10, "")
+                    val ragResults = org.json.JSONArray(ragJson)
+                    if (ragResults.length() > 0) {
+                        val sb = StringBuilder()
+                        sb.appendLine("[RAG Search Results]")
+                        for (i in 0 until ragResults.length()) {
+                            val item = ragResults.getJSONObject(i)
+                            val path = item.optString("path", "unknown")
+                            val fileName = java.io.File(path).name.ifEmpty { path }
+                            val score = item.optDouble("score", 0.0)
+                            val chunkText = item.optString("text", item.optString("snippet", ""))
+                            if (chunkText.isNotBlank()) {
+                                sb.appendLine("--- ${fileName} (score: ${"%.2f".format(score)}) ---")
+                                sb.appendLine(chunkText.take(800))
+                                sb.appendLine()
+                            }
+                        }
+                        ragContext = sb.toString().trimEnd()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "RAG search failed: ${e.message}")
+                }
+            }
+
             try {
                 withTimeout(90_000L) {
                     val modelId = _uiState.value.selectedModel.id.ifEmpty { configRepository.getModel() }
@@ -471,8 +612,11 @@ No pip, no internet, no filesystem access.
                     val state = _uiState.value
                     val userPrompt = configRepository.getSystemPrompt()
                     val now = java.text.SimpleDateFormat("EEEE, MMMM d, yyyy", java.util.Locale.US).format(java.util.Date())
-                    val dynamicPrompt = buildDynamicPrompt(userPrompt, state.isWebSearchEnabled, state.isCodingEnabled, now)
-                    chatRepository.setSessionSystemPrompt(sessionId, dynamicPrompt)
+                    val dynamicPrompt = buildDynamicPrompt(userPrompt, state.isWebSearchEnabled, state.isCodingEnabled, state.isSpace, now)
+                    
+                    // Inject RAG context into system prompt if available
+                    val finalPrompt = if (ragContext != null) "$dynamicPrompt\n\n$ragContext" else dynamicPrompt
+                    chatRepository.setSessionSystemPrompt(sessionId, finalPrompt)
 
                     val success: Boolean
                     when {
@@ -747,24 +891,252 @@ No pip, no internet, no filesystem access.
             createNewSession()
             _uiState.update {
                 it.copy(
-                    messages = emptyList()
+                    messages = emptyList(),
+                    isSpace = false,
+                    isRagEnabled = false,
+                    spaceFileNames = emptyList()
                 )
             }
         }
     }
 
+    private fun newSpace() {
+        Log.d(TAG, "newSpace: opening setup modal")
+        hasSentMessage = false
+        _uiState.update { it.copy(showSpaceSetup = true, spaceSetupName = "", spaceSetupFilePaths = emptyList(), spaceSetupFileNames = emptyList()) }
+    }
+    
+    private suspend fun createSpaceSession(name: String) {
+        Log.d(TAG, "createSpaceSession: name='$name'")
+        val selectedModel = _uiState.value.selectedModel
+        var modelStr = selectedModel.id.ifEmpty { configRepository.getModel() }
+        var providerForModel = selectedModel.provider.ifEmpty { configRepository.getProvider() }
+        if (modelStr.isBlank()) {
+            val allModels = _uiState.value.models
+            if (allModels.isNotEmpty()) {
+                val first = allModels.first()
+                modelStr = first.id
+                providerForModel = first.provider.ifEmpty { providerForModel }
+            }
+        }
+        val currentProvider = configRepository.getProvider()
+        if (providerForModel.isNotBlank() && providerForModel != currentProvider) {
+            configRepository.setProvider(providerForModel)
+        }
+        val userPrompt = configRepository.getSystemPrompt()
+        val now = java.text.SimpleDateFormat("EEEE, MMMM d, yyyy", java.util.Locale.US).format(java.util.Date())
+        val dynamicPrompt = buildDynamicPrompt(userPrompt, false, false, true, now)
+        val modelForSession = if (providerForModel.isNotBlank()) Model(modelStr, modelStr, providerForModel) else Model(modelStr, modelStr)
+        val conversation = chatRepository.createSpace(
+            title = name.ifBlank { "New Space" },
+            model = modelForSession,
+            systemPrompt = dynamicPrompt
+        )
+        sessionId = conversation.id.toString()
+        val nativeSid = sessionId.replace("-", "")
+        Log.d(TAG, "createSpaceSession: sessionId=$sessionId nativeId=$nativeSid")
+        _uiState.update {
+            it.copy(
+                selectedConversation = conversation,
+                selectedModel = modelForSession,
+                messages = emptyList(),
+                isSpace = true,
+                isRagEnabled = true,
+                spaceFileNames = emptyList(),
+                isWebSearchEnabled = false,
+                isCodingEnabled = false
+            )
+        }
+        Log.d(TAG, "Created space: $sessionId name='$name'")
+        chatRepository.updateConversation(conversation)
+        val modelDir = copyBgeModelIfNeeded()
+        if (modelDir != null) {
+            ZetlaCore.nativeInitRagModel(modelDir)
+        }
+        ZetlaCore.nativeSetRagConfig(configRepository.getRagConfig().toJson())
+        chatRepository.setSessionRag(nativeSid, true)
+        registerRagTools()
+    }
+
+    private fun registerRagTools() {
+        val nativeSid = sessionId.replace("-", "")
+        
+        // rewrite_query tool (LLM-powered query optimization)
+        val rewriteSchema = """{"type":"object","properties":{"query":{"type":"string","description":"Original query to rewrite for better document search"}},"required":["query"]}"""
+        val rewriteDesc = "Rewrite a search query to be more specific with domain terminology, expanded abbreviations, and synonyms for better document retrieval."
+        ZetlaCore.nativeAddTool(nativeSid, "rewrite_query", rewriteDesc, rewriteSchema)
+        
+        val rewriteExecutor = object : ToolExecutorCallback {
+            override fun execute(sessionId: String, toolName: String, argumentsJson: String): String {
+                try {
+                    val obj = org.json.JSONObject(argumentsJson)
+                    val query = obj.optString("query", "")
+                    if (query.isBlank()) return """{"error":"Missing query"}"""
+                    return """{"rewritten":"$query"}"""
+                } catch (e: Exception) {
+                    return """{"error":"${e.message?.replace("\"", "\\\"") ?: "Unknown"}"}"""
+                }
+            }
+        }
+        ZetlaCore.nativeSetToolExecutor(nativeSid, rewriteExecutor)
+    }
+
+    private suspend fun copyBgeModelIfNeeded(): String? = withContext(Dispatchers.IO) {
+        try {
+            val modelDir = java.io.File(appContext.filesDir, "bge_model")
+            if (modelDir.exists() && java.io.File(modelDir, "word_embeds.bin").exists()) {
+                return@withContext modelDir.absolutePath
+            }
+            modelDir.mkdirs()
+            for (name in arrayOf("word_embeds.bin", "vocab.txt")) {
+                val dest = java.io.File(modelDir, name)
+                appContext.assets.open("bge_model/$name").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+            modelDir.absolutePath
+        } catch (_: Exception) { null }
+    }
+
+    private suspend fun indexFileForRag(file: FileAttachment) {
+        try {
+            Log.d(TAG, "indexFileForRag: ${file.name} path=${file.path} type=${file.type} size=${file.size}")
+            val text = withContext(Dispatchers.Default) {
+                when (file.type) {
+                    FileType.PDF -> {
+                        Log.d(TAG, "indexFileForRag: extracting PDF ${file.name}")
+                        fileRepository.extractPdfText(android.net.Uri.fromFile(java.io.File(file.path))).data
+                    }
+                    FileType.TEXT -> {
+                        val f = java.io.File(file.path)
+                        if (!f.exists()) { Log.w(TAG, "indexFileForRag: file not found ${file.path}"); null }
+                        else {
+                            Log.d(TAG, "indexFileForRag: reading text ${file.name} len=${f.length()}")
+                            try { f.readText() } catch (e: Exception) {
+                                Log.w(TAG, "indexFileForRag: cannot read ${file.name} as text: ${e.message}"); null
+                            }
+                        }
+                    }
+                    FileType.DOCUMENT, FileType.SPREADSHEET, FileType.PRESENTATION -> {
+                        Log.d(TAG, "indexFileForRag: native extraction for ${file.name} (type=${file.type})")
+                        try {
+                            val json = ZetlaCore.nativeExtractFileText(file.path)
+                            Log.d(TAG, "indexFileForRag: native result for ${file.name}: ${json.take(200)}")
+                            val text = try {
+                                org.json.JSONObject(json).optString("text", "")
+                            } catch (e: Exception) { "" }
+                            if (text.isNotBlank()) text else {
+                                Log.w(TAG, "indexFileForRag: native extraction empty for ${file.name}")
+                                null
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "indexFileForRag: native extraction failed for ${file.name}: ${e.message}")
+                            null
+                        }
+                    }
+                    FileType.IMAGE, FileType.UNKNOWN -> {
+                        Log.w(TAG, "indexFileForRag: unsupported file type ${file.type} for ${file.name}, skipping")
+                        null
+                    }
+                    else -> {
+                        val f = java.io.File(file.path)
+                        if (!f.exists()) {
+                            Log.w(TAG, "indexFileForRag: file not found ${file.path}")
+                            null
+                        } else {
+                            Log.d(TAG, "indexFileForRag: reading text ${file.name} len=${f.length()}")
+                            try { f.readText() } catch (e: Exception) {
+                                Log.w(TAG, "indexFileForRag: cannot read ${file.name} as text: ${e.message}")
+                                null
+                            }
+                        }
+                    }
+                }
+            }
+            if (!text.isNullOrBlank()) {
+                Log.d(TAG, "indexFileForRag: extracted ${text.length} chars for ${file.name}")
+                val result = chatRepository.addSpaceFile(sessionId.replace("-", ""), file.path, text)
+                Log.d(TAG, "indexFileForRag: addSpaceFile result=$result")
+            } else {
+                Log.w(TAG, "indexFileForRag: no text extracted for ${file.name} (type=${file.type})")
+            }
+        } catch (e: TimeoutCancellationException) {
+            Log.w(TAG, "indexFileForRag: timeout for ${file.name}, skipping")
+        } catch (e: Exception) {
+            Log.e(TAG, "indexFileForRag failed for ${file.name}", e)
+        }
+    }
+
+    private suspend fun refreshSpaceFiles() {
+        try {
+            val nativeSid = sessionId.replace("-", "")
+            val files = chatRepository.listSpaceFiles(nativeSid)
+            Log.d(TAG, "refreshSpaceFiles: nativeSid=$nativeSid files=$files")
+            _uiState.update { it.copy(spaceFileNames = files) }
+        } catch (e: Exception) {
+            Log.e(TAG, "refreshSpaceFiles failed", e)
+        }
+    }
+    
+    private suspend fun reindexAllSpaceFiles() {
+        try {
+            val files = _uiState.value.spaceFileNames
+            for (filePath in files) {
+                val f = java.io.File(filePath)
+                if (!f.exists()) continue
+                val name = f.name
+                val text: String? = if (name.endsWith(".pdf")) {
+                    fileRepository.extractPdfText(android.net.Uri.fromFile(f)).data
+                } else {
+                    f.readText()
+                }
+                if (!text.isNullOrBlank()) {
+                    chatRepository.addSpaceFile(sessionId.replace("-", ""), filePath, text)
+                }
+            }
+            if (files.isNotEmpty()) {
+                Log.d(TAG, "Reindexed ${files.size} files for space $sessionId")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Reindex failed: ${e.message}")
+        }
+    }
+    
+    private suspend fun reindexFromPath(path: String, name: String) = reindexAllSpaceFiles()
+
     private suspend fun selectConversation(conversation: Conversation) {
         val sid = conversation.id.toString()
-        Log.d(TAG, "selectConversation: $sid")
+        Log.d(TAG, "selectConversation: $sid isSpace=${conversation.isSpace}")
         sessionId = sid
         _uiState.update {
             it.copy(
                 selectedConversation = conversation,
                 selectedModel = conversation.selectedModel,
-                messages = emptyList()
+                messages = emptyList(),
+                isSpace = conversation.isSpace
             )
         }
         val loaded = chatRepository.loadSession(sid)
+        Log.d(TAG, "selectConversation: loaded=$loaded isSpace=${conversation.isSpace}")
+        if (loaded && conversation.isSpace) {
+            Log.d(TAG, "selectConversation: restoring space session")
+            val nativeSid = sid.replace("-", "")
+            refreshSpaceFiles()
+            val modelDir = copyBgeModelIfNeeded()
+            if (modelDir != null) {
+                ZetlaCore.nativeInitRagModel(modelDir)
+            }
+            // Load RAG index from disk (fast - just Lorentz vectors + chunk texts)
+            val ragDir = java.io.File(appContext.filesDir, "rag_$nativeSid")
+            val loadedRag = if (ragDir.exists()) {
+                ZetlaCore.nativeLoadRagSession(nativeSid, ragDir.absolutePath)
+            } else false
+            Log.d(TAG, "selectConversation: RAG load from disk=$loadedRag")
+            _uiState.update { it.copy(isRagEnabled = true) }
+            chatRepository.setSessionRag(nativeSid, true)
+            registerRagTools()
+            Log.d(TAG, "selectConversation: space restored, tools registered")
+        }
         Log.d(TAG, "loadSession result: $loaded")
         if (loaded) {
             val history = chatRepository.getMessages(conversation.id)

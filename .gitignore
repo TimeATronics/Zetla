@@ -7,6 +7,18 @@ Zetla/build/
 build/
 deps_build/
 .gradle/
+vcpkg_installed/
+beir_data/
+beir_bench/
+**/*__pycache__*
+
+refs/
+papers/
+**/test/txt
+PLAN.md
+REF_PROJECTS.md
+
+model.onnx
 
 # Kotlin build cache
 Zetla/.kotlin/

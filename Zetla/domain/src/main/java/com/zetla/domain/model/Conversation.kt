@@ -7,6 +7,7 @@ data class Conversation(
     val title: String,
     val selectedModel: Model,
     val isStarred: Boolean = false,
+    val isSpace: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val lastUpdatedAt: Long = System.currentTimeMillis(),
     val hasCompactedContext: Boolean = false

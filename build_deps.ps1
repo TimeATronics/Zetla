@@ -59,7 +59,7 @@ foreach ($abi in $ABIS) {
     Write-Host "`n=== Building libcurl for $abi ==="
     New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 
-    # CMake configure — build args as array to avoid backtick expansion issues
+    # CMake configure - build args as array to avoid backtick expansion issues
     $cmakeArgs = @(
         "-G", "Ninja"
         "-B", $buildDir

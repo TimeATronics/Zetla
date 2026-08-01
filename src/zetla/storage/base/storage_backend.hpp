@@ -10,10 +10,12 @@ namespace zetla::storage {
         std::string model;
         std::string title;
         bool is_starred = false;
+        bool is_space = false;
         std::string system_prompt;
         std::vector<std::pair<std::string, std::string>> messages;  // role, content
         std::string options_json;     // serialized ChatOptions
         std::string compacted_summary;
+        std::string space_files_json; // JSON array of {name, path, added_at_ms}
         int64_t created_at_ms = 0;
         int64_t last_active_ms = 0;
     };

@@ -35,6 +35,8 @@ interface ConfigRepository {
     fun setExaApiKey(apiKey: String)
     fun refreshModelsDevCache(force: Boolean): Boolean
     fun ensureModelsDevCached()
+    fun setRagConfig(config: RagConfig)
+    fun getRagConfig(): RagConfig
 }
 
 data class ProviderInfo(
@@ -49,3 +51,21 @@ data class ProviderConfig(
     val baseUrl: String = "",
     val enabled: Boolean = true
 )
+
+data class RagConfig(
+    val bm25Alpha: Float = 0.7f,
+    val projectionEnabled: Boolean = true,
+    val rerankEnabled: Boolean = true,
+    val chunkChars: Int = 300,
+    val overlapChars: Int = 60
+) {
+    fun toJson(): String {
+        return org.json.JSONObject().apply {
+            put("bm25_alpha", bm25Alpha.toDouble())
+            put("projection_enabled", projectionEnabled)
+            put("rerank_enabled", rerankEnabled)
+            put("chunk_chars", chunkChars)
+            put("overlap_chars", overlapChars)
+        }.toString()
+    }
+}

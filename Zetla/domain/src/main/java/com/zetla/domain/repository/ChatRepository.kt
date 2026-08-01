@@ -24,6 +24,7 @@ interface ChatRepository {
     fun getConversationsFlow(): kotlinx.coroutines.flow.Flow<List<Conversation>>
 
     suspend fun createConversation(title: String, model: Model = Model.defaultModel, isStarred: Boolean = false, systemPrompt: String = ""): Conversation
+    suspend fun createSpace(title: String, model: Model = Model.defaultModel, systemPrompt: String = ""): Conversation
     suspend fun updateConversation(conversation: Conversation)
     suspend fun deleteConversation(id: java.util.UUID)
     suspend fun getMessages(conversationId: java.util.UUID): List<ChatMessage>
@@ -33,6 +34,10 @@ interface ChatRepository {
     suspend fun setSessionOptions(sessionId: String, optionsJson: String)
     suspend fun setSessionSystemPrompt(sessionId: String, systemPrompt: String)
     suspend fun setSessionWebSearch(sessionId: String, enabled: Boolean): Boolean
+    suspend fun setSessionRag(sessionId: String, enabled: Boolean): Boolean
+    suspend fun addSpaceFile(sessionId: String, filePath: String, textContent: String): String
+    suspend fun listSpaceFiles(sessionId: String): List<String>
+    suspend fun isSpace(sessionId: String): Boolean
     suspend fun compactSession(sessionId: String): Boolean
     suspend fun needsCompaction(sessionId: String): Boolean
     fun cancelRequest()

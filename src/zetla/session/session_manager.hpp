@@ -58,6 +58,11 @@ namespace zetla::session {
             const std::string& system_prompt = ""
         );
 
+        std::string create_space(
+            const std::string& model = "deepseek-v4-flash",
+            const std::string& system_prompt = ""
+        );
+
         bool send_message(
             const std::string& session_id,
             const std::string& user_message,
@@ -120,6 +125,11 @@ namespace zetla::session {
 
         core::ChatOptions get_session_options(const std::string& session_id);
 
+        bool is_space(const std::string& session_id);
+
+        bool add_space_file(const std::string& session_id, const std::string& file_path);
+        std::vector<SpaceFile> list_space_files(const std::string& session_id);
+
         bool add_tool_to_session(
             const std::string& session_id,
             std::unique_ptr<core::IToolExecutor> tool
@@ -146,6 +156,7 @@ namespace zetla::session {
             std::string model;
             std::string title;
             bool is_starred = false;
+            bool is_space = false;
             long long created_at = 0;
             long long last_active = 0;
             std::string compacted_summary;

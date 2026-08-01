@@ -11,17 +11,25 @@
 
 namespace zetla::session {
 
+    struct SpaceFile {
+        std::string name;
+        std::string path;
+        int64_t added_at_ms = 0;
+    };
+
     struct Session {
         std::string id;
         std::string model;
         std::string title;
         bool is_starred = false;
+        bool is_space = false;
         memory::ChatHistory history;
         core::ChatOptions options;
         std::vector<core::ToolDefinition> tools;
         std::vector<std::unique_ptr<core::IToolExecutor>> tool_executors;
         core::ToolExecutorCallback tool_executor;
         std::unordered_map<std::string, file_handlers::RegisteredFile> registered_files;
+        std::vector<SpaceFile> space_files;
         std::chrono::system_clock::time_point created_at;
         std::chrono::system_clock::time_point last_active;
 

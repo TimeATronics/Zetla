@@ -145,6 +145,65 @@ JNIEXPORT jboolean JNICALL Java_com_zetla_data_ZetlaCore_nativeSendMessageWithIm
     JNIEnv* env, jclass cls, jstring session_id, jstring message,
     jobjectArray image_data_uris, jobject callback);
 
+//  RAG (Hyperbolic Search) 
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeRagInit(
+    JNIEnv* env, jclass cls, jstring model_path);
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeRagAddFile(
+    JNIEnv* env, jclass cls, jstring session_id, jstring file_path, jstring text_content);
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeRagSearch(
+    JNIEnv* env, jclass cls, jstring session_id, jstring query, jint top_k, jstring scope_file);
+
+JNIEXPORT jint JNICALL Java_com_zetla_data_ZetlaCore_nativeRagChunkCount(
+    JNIEnv* env, jclass cls, jstring session_id);
+
+JNIEXPORT jlong JNICALL Java_com_zetla_data_ZetlaCore_nativeRagMemoryBytes(
+    JNIEnv* env, jclass cls, jstring session_id);
+
+JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeRagRemoveSession(
+    JNIEnv* env, jclass cls, jstring session_id);
+
+JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeRagSetDebugCallback(
+    JNIEnv* env, jclass cls, jobject callback);
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeCreateSpace(
+    JNIEnv* env, jclass cls, jstring model, jstring system_prompt);
+
+JNIEXPORT jint JNICALL Java_com_zetla_data_ZetlaCore_nativeSetSessionRag(
+    JNIEnv* env, jclass cls, jstring session_id, jint enabled);
+
+JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeInitRagModel(
+    JNIEnv* env, jclass cls, jstring model_dir);
+
+JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeSetProjectionEnabled(
+    JNIEnv* env, jclass cls, jboolean enabled);
+
+JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeSetRagConfig(
+    JNIEnv* env, jclass cls, jstring config_json);
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeGetRagConfig(
+    JNIEnv* env, jclass cls);
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeAddSpaceFile(
+    JNIEnv* env, jclass cls, jstring session_id, jstring file_path, jstring text_content);
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeListSpaceFiles(
+    JNIEnv* env, jclass cls, jstring session_id);
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeIsSpace(
+    JNIEnv* env, jclass cls, jstring session_id);
+
+JNIEXPORT jboolean JNICALL Java_com_zetla_data_ZetlaCore_nativeSaveRagSession(
+    JNIEnv* env, jclass cls, jstring session_id, jstring dir_path);
+
+JNIEXPORT jboolean JNICALL Java_com_zetla_data_ZetlaCore_nativeLoadRagSession(
+    JNIEnv* env, jclass cls, jstring session_id, jstring dir_path);
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeExtractFileText(
+    JNIEnv* env, jclass cls, jstring file_path);
+
 #ifdef __cplusplus
 }
 #endif

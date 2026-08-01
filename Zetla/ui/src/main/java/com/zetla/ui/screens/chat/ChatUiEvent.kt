@@ -15,8 +15,12 @@ sealed interface ChatUiEvent {
     data class OnModelSelected(val model: Model) : ChatUiEvent
     data class OnConversationSelected(val conversation: Conversation) : ChatUiEvent
     data object OnNewChat : ChatUiEvent
+    data object OnNewSpace : ChatUiEvent
     data object OnWebSearchTapped : ChatUiEvent
     data object OnCodingToggled : ChatUiEvent
+    data object OnRagToggled : ChatUiEvent
+    data object OnToggleSpaceFiles : ChatUiEvent
+    data object OnDismissSpaceFiles : ChatUiEvent
     data class OnDeleteConversation(val conversation: Conversation) : ChatUiEvent
     data class OnUpdateConversation(val conversation: Conversation) : ChatUiEvent
     data class OnConversationFilterSelected(val filter: ConversationFilter) : ChatUiEvent
@@ -28,4 +32,8 @@ sealed interface ChatUiEvent {
     data object OnDismissOnboarding : ChatUiEvent
     data class OnSetupProvider(val providerId: String, val apiKey: String) : ChatUiEvent
     data class OnReasoningEffortSelected(val effort: String) : ChatUiEvent
+    data object OnSpaceSetupDismiss : ChatUiEvent
+    data class OnSpaceSetupNameChanged(val name: String) : ChatUiEvent
+    data class OnSpaceSetupFiles(val files: List<FileAttachment>) : ChatUiEvent
+    data object OnSpaceSetupConfirm : ChatUiEvent
 }

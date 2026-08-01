@@ -10,6 +10,8 @@
 #include "nlohmann/json.hpp"
 #include "../search/web_search_tool.hpp"
 #include "../search/exa_provider.hpp"
+#include "../rag/rag_tool.hpp"
+#include "../file_handlers/base/file_handler_factory.hpp"
 #include <cstring>
 #include <curl/curl.h>
 
@@ -296,7 +298,7 @@ ZETLA_API int zetla_set_session_web_search(const char* session_id, int enabled) 
 
     if (enabled) {
         auto& cfg = zetla::core::get_config();
-        // Always use EXA MCP (no DuckDuckGo — doesn't work on Android)
+        // Always use EXA MCP (no DuckDuckGo - doesn't work on Android)
         std::unique_ptr<zetla::search::ISearchProvider> search_provider =
             std::make_unique<zetla::search::ExaSearchProvider>(
                 cfg.exa_api_key,
@@ -312,6 +314,123 @@ ZETLA_API int zetla_set_session_web_search(const char* session_id, int enabled) 
     }
 
     return 1;
+}
+
+ZETLA_API int zetla_set_session_rag(const char* session_id, int enabled) {
+    if (!g_manager) return 0;
+    if (!session_id) return 0;
+
+    std::string sid(session_id);
+
+    if (enabled) {
+        auto tool = std::make_unique<zetla::rag::RagTool>(sid);
+        zetla::rag::RagManager::instance().create_session(sid);
+        g_manager->add_tool_to_session(sid, std::move(tool));
+        auto listTool = std::make_unique<zetla::rag::CorpusFilesTool>(sid);
+        g_manager->add_tool_to_session(sid, std::move(listTool));
+        ZLOGI("RAG tool registered for session: %s", sid.c_str());
+    }
+    // note: no unregister - tool stays once added (same pattern as web_search)
+
+    return 1;
+}
+
+ZETLA_API void zetla_init_rag_model(const char* model_dir) {
+    if (!model_dir) return;
+    zetla::rag::RagManager::instance().init_embedder(model_dir);
+}
+
+ZETLA_API void zetla_set_rag_config_json(const char* json_str) {
+    if (!json_str || !json_str[0]) return;
+    try {
+        json j = json::parse(json_str);
+        auto& mgr = zetla::rag::RagManager::instance();
+        mgr.set_config(j.value("bm25_alpha", 0.7f), j.value("chunk_chars", 300), j.value("overlap_chars", 60));
+        mgr.set_rerank_enabled(j.value("rerank_enabled", true));
+        if (j.contains("projection_enabled")) {
+            mgr.set_projection_enabled(j.value("projection_enabled", true));
+        }
+    } catch (...) {}
+}
+
+ZETLA_API char* zetla_get_rag_config_json(void) {
+    try {
+        auto& mgr = zetla::rag::RagManager::instance();
+        json j;
+        j["bm25_alpha"] = mgr.get_alpha();
+        j["projection_enabled"] = mgr.projection_enabled();
+        j["rerank_enabled"] = mgr.rerank_enabled();
+        j["chunk_chars"] = mgr.get_chunk_chars();
+        j["overlap_chars"] = mgr.get_overlap_chars();
+        return to_cstr(j.dump());
+    } catch (...) { return to_cstr("{}"); }
+}
+
+ZETLA_API zetla_response zetla_is_space(const char* session_id) {
+    if (!g_manager || !session_id) return make_error("INVALID_ARG", "null argument");
+    std::string sid(session_id);
+    bool is_space = g_manager->is_space(sid);
+    json j;
+    j["is_space"] = is_space;
+    return make_response(j.dump());
+}
+
+ZETLA_API zetla_response zetla_add_space_file(const char* session_id,
+                                                const char* file_path,
+                                                const char* text_content) {
+    if (!g_manager || !session_id || !file_path || !text_content)
+        return make_error("INVALID_ARG", "null argument");
+
+    std::string sid(session_id);
+    std::string fp(file_path);
+    std::string txt(text_content);
+
+    ZLOGI("[add_space_file] sid=%s fp=%s txt_len=%zu", sid.c_str(), fp.c_str(), txt.size());
+
+    // Index in RAG
+    zetla::rag::RagManager::instance().create_session(sid);
+    ZLOGI("[add_space_file] session ready, calling add_file...");
+    int n = zetla::rag::RagManager::instance().add_file(sid, fp, txt);
+    ZLOGI("[add_space_file] add_file done, chunks=%d", n);
+
+    // Store file metadata in session
+    bool ok = g_manager->add_space_file(sid, fp);
+    ZLOGI("[add_space_file] metadata stored, ok=%d", (int)ok);
+
+    json j;
+    j["chunks"] = n;
+    j["path"] = fp;
+    return make_response(j.dump());
+}
+
+ZETLA_API zetla_response zetla_list_space_files(const char* session_id) {
+    if (!g_manager || !session_id) return make_error("INVALID_ARG", "null argument");
+    auto files = g_manager->list_space_files(session_id);
+    json j = json::array();
+    for (auto& f : files) {
+        json fj;
+        fj["name"] = f.name;
+        fj["path"] = f.path;
+        fj["added_at_ms"] = f.added_at_ms;
+        j.push_back(fj);
+    }
+    return make_response(j.dump());
+}
+
+ZETLA_API char* zetla_extract_file_text(const char* file_path) {
+    if (!file_path || !file_path[0]) return to_cstr("{}");
+    try {
+        std::string mime = zetla::file_handlers::detect_mime_type(file_path);
+        auto handler = zetla::file_handlers::create_handler(mime);
+        if (!handler) return to_cstr("{}");
+        auto content = handler->extract(file_path);
+        if (content.text_content.empty()) return to_cstr("{}");
+        json j;
+        j["text"] = content.text_content;
+        j["mime_type"] = content.mime_type;
+        j["file_name"] = content.file_name;
+        return to_cstr(j.dump());
+    } catch (...) { return to_cstr("{}"); }
 }
 
 ZETLA_API void zetla_set_search_provider(const char* provider) {
@@ -336,6 +455,27 @@ ZETLA_API zetla_response zetla_create_session(const char* model, const char* sys
     std::string sp = system_prompt ? system_prompt : "";
     ZLOGI("create_session: model=%s system_prompt=%s", m.c_str(), zetla::log::truncate(sp, 200).c_str());
     std::string id = g_manager->create_session(m, sp);
+
+    return make_response(zetla::json::session_created(id, m));
+}
+
+ZETLA_API zetla_response zetla_create_space(const char* model, const char* system_prompt) {
+    if (!g_manager) return make_error("NOT_INITIALIZED", "Call zetla_init() first");
+
+    std::string m = model ? model : "deepseek-v4-flash";
+    std::string sp = system_prompt ? system_prompt : "";
+
+    // Append RAG tool usage instructions to system prompt
+    std::string space_prompt = sp + "\n\n"
+        "You have access to the search_files tool for semantic search over the user's uploaded documents.\n"
+        "Use it to find relevant information from the files the user has shared with you.\n"
+        "Always prefer searching files over guessing - invoke search_files whenever the user asks\n"
+        "about content that might be in their documents. Provide clear, cited answers.\n"
+        "You also have list_corpus_files to see what documents are available in the corpus.\n"
+        "Use list_corpus_files when you need to know which files exist before searching.\n";
+
+    ZLOGI("create_space: model=%s", m.c_str());
+    std::string id = g_manager->create_space(m, space_prompt);
 
     return make_response(zetla::json::session_created(id, m));
 }
@@ -537,13 +677,16 @@ ZETLA_API zetla_response zetla_list_sessions(void) {
             {"model", s.model},
             {"title", s.title},
             {"is_starred", s.is_starred},
+            {"is_space", s.is_space},
             {"created_at", s.created_at},
             {"last_active", s.last_active},
             {"has_compacted_summary", !s.compacted_summary.empty()}
         });
     }
 
-    return make_response(zetla::json::ok(arr.dump()));
+    auto json = zetla::json::ok(arr.dump());
+    ZLOGI("[list_sessions] returning %zu sessions, is_space fields present", sessions.size());
+    return make_response(json);
 }
 
 ZETLA_API zetla_response zetla_delete_from_storage(const char* session_id) {

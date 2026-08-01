@@ -53,6 +53,7 @@ namespace zetla::session {
         stored.model = s.model;
         stored.title = s.title;
         stored.is_starred = s.is_starred;
+        stored.is_space = s.is_space;
         stored.system_prompt = s.history.system_prompt();
         stored.compacted_summary = s.history.compacted_summary();
 
@@ -76,6 +77,19 @@ namespace zetla::session {
         for (auto& [k, v] : s.options.provider_options) opts_j[k] = v;
         stored.options_json = opts_j.dump();
 
+        // Serialize space_files
+        if (!s.space_files.empty()) {
+            nlohmann::json sf_j = nlohmann::json::array();
+            for (auto& sf : s.space_files) {
+                nlohmann::json f;
+                f["name"] = sf.name;
+                f["path"] = sf.path;
+                f["added_at_ms"] = sf.added_at_ms;
+                sf_j.push_back(f);
+            }
+            stored.space_files_json = sf_j.dump();
+        }
+
         auto to_ms = [](std::chrono::system_clock::time_point tp) -> int64_t {
             return std::chrono::duration_cast<std::chrono::milliseconds>(
                 tp.time_since_epoch()).count();
@@ -91,9 +105,27 @@ namespace zetla::session {
         s.model = stored.model;
         s.title = stored.title;
         s.is_starred = stored.is_starred;
+        s.is_space = stored.is_space;
 
         s.history.clear();
         s.history.set_system_prompt(stored.system_prompt);
+
+        // Restore space files
+        s.space_files.clear();
+        if (!stored.space_files_json.empty()) {
+            try {
+                auto sf_j = nlohmann::json::parse(stored.space_files_json);
+                if (sf_j.is_array()) {
+                    for (auto& f : sf_j) {
+                        SpaceFile sf;
+                        sf.name = f.value("name", "");
+                        sf.path = f.value("path", "");
+                        sf.added_at_ms = f.value("added_at_ms", (int64_t)0);
+                        s.space_files.push_back(sf);
+                    }
+                }
+            } catch (...) {}
+        }
 
         if (!stored.compacted_summary.empty()) {
             s.history.set_compacted_summary(stored.compacted_summary);
@@ -127,7 +159,7 @@ namespace zetla::session {
                 if (j.contains("compact_model")) s.options.compact_model = j["compact_model"].get<std::string>();
                 if (j.contains("compact_on_save")) s.options.compact_on_save = j["compact_on_save"].get<bool>();
 
-                // Restore provider_options — any string value that isn't a known option key
+                // Restore provider_options - any string value that isn't a known option key
                 static const std::set<std::string> known_keys = {
                     "temperature", "max_tokens", "top_p", "frequency_penalty",
                     "presence_penalty", "seed", "max_context_tokens",
@@ -155,6 +187,7 @@ namespace zetla::session {
         auto it = sessions_.find(session_id);
         if (it == sessions_.end()) return false;
         auto stored = session_to_stored(*it->second);
+        ZLOGI("[session] save: id=%s is_space=%d title=%s", session_id.c_str(), (int)stored.is_space, stored.title.c_str());
         return storage_->save_session(stored);
     }
 
@@ -265,6 +298,54 @@ namespace zetla::session {
         }
         save_to_storage(id);
         return id;
+    }
+
+    std::string SessionManager::create_space(const std::string& model, const std::string& system_prompt) {
+        std::string id;
+        {
+            std::lock_guard<std::mutex> lock(sessions_mutex_);
+            id = generate_id();
+            auto sess = std::make_unique<Session>(id, model, system_prompt);
+            sess->is_space = true;
+            sessions_[id] = std::move(sess);
+        }
+        save_to_storage(id);
+        return id;
+    }
+
+    bool SessionManager::is_space(const std::string& session_id) {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        auto it = sessions_.find(session_id);
+        return it != sessions_.end() && it->second->is_space;
+    }
+
+    bool SessionManager::add_space_file(const std::string& session_id, const std::string& file_path) {
+        std::string sid(session_id);
+        SpaceFile sf;
+        {
+            std::lock_guard<std::mutex> lock(sessions_mutex_);
+            auto it = sessions_.find(session_id);
+            if (it == sessions_.end()) return false;
+
+            std::string name = file_path;
+            auto slash = file_path.find_last_of("/\\");
+            if (slash != std::string::npos) name = file_path.substr(slash + 1);
+
+            sf.name = name;
+            sf.path = file_path;
+            sf.added_at_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            it->second->space_files.push_back(sf);
+        }
+        save_to_storage(sid);
+        return true;
+    }
+
+    std::vector<SpaceFile> SessionManager::list_space_files(const std::string& session_id) {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        auto it = sessions_.find(session_id);
+        if (it == sessions_.end()) return {};
+        return it->second->space_files;
     }
 
     bool SessionManager::delete_session(const std::string& session_id) {
@@ -605,7 +686,7 @@ namespace zetla::session {
         }
 
         agentic::AgenticLoop loop;
-        loop.set_max_iterations(10);
+        loop.set_max_iterations(sess->is_space ? 20 : 10);
         loop.set_tool_definitions(sess->tools);
         for (auto& exec : sess->tool_executors) {
             loop.add_tool_executor(exec.get());
@@ -743,6 +824,8 @@ namespace zetla::session {
         storage::StoredSession stored;
         if (!storage_->load_session(session_id, stored)) return false;
 
+        ZLOGI("[session] load: id=%s is_space=%d title=%s msgs=%zu", session_id.c_str(), (int)stored.is_space, stored.title.c_str(), stored.messages.size());
+
         std::lock_guard<std::mutex> lock(sessions_mutex_);
         size_t max_ctx = 8192;
         if (!stored.options_json.empty()) {
@@ -774,6 +857,7 @@ namespace zetla::session {
                 info.model = stored.model;
                 info.title = stored.title;
                 info.is_starred = stored.is_starred;
+                info.is_space = stored.is_space;
                 info.created_at = stored.created_at_ms;
                 info.last_active = stored.last_active_ms;
                 info.compacted_summary = stored.compacted_summary;

@@ -27,6 +27,16 @@ add_library(zetla SHARED
     ${ZETLA_ROOT}/zetla/file_handlers/pdf/pdf_file_handler.cpp
     ${ZETLA_ROOT}/zetla/file_handlers/office/office_file_handler.cpp
     ${ZETLA_ROOT}/zetla/thirdparty/zip/zip.c
+    # RAG module (hyperbolic search) - only files Android app needs
+    ${ZETLA_ROOT}/zetla/rag/core/lorentz.cpp
+    ${ZETLA_ROOT}/zetla/rag/index/lorentz_index.cpp
+    ${ZETLA_ROOT}/zetla/rag/chunker/chunker.cpp
+    ${ZETLA_ROOT}/zetla/rag/rag_tool.cpp
+    ${ZETLA_ROOT}/zetla/rag/bert_tokenizer.cpp
+    ${ZETLA_ROOT}/zetla/rag/hyp_embedder.cpp
+    ${ZETLA_ROOT}/zetla/rag/graph_enhance.cpp
+    ${ZETLA_ROOT}/zetla/rag/bm25_index.cpp
+    ${ZETLA_ROOT}/zetla/rag/zetla_rag.cpp
 )
 
 target_include_directories(zetla PRIVATE
@@ -41,6 +51,16 @@ target_include_directories(zetla PRIVATE
     ${ZETLA_ROOT}/zetla/protocols/openai_chat
     ${ZETLA_ROOT}/zetla/tools
     ${ZETLA_ROOT}/zetla/pdf
+    # RAG module includes
+    ${ZETLA_ROOT}/zetla/rag
+    ${ZETLA_ROOT}/zetla/rag/core
+    ${ZETLA_ROOT}/zetla/rag/index
+    ${ZETLA_ROOT}/zetla/rag/chunker
+    ${ZETLA_ROOT}/zetla/rag/projector
+    ${ZETLA_ROOT}/zetla/rag/api
+    ${ZETLA_ROOT}/zetla/rag/gpu
+    # Eigen3 (bundled for Android)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../libs/eigen3
     ${DEPS_DIR}/include
     ${DEPS_DIR}/include/openssl
 )
@@ -67,7 +87,12 @@ target_link_libraries(zetla
     crypto_static
     z
     android
+    vulkan
 )
+
+# OpenMP for parallel indexing/retrieval (NDK static)
+target_compile_options(zetla PRIVATE -fopenmp)
+target_link_options(zetla PRIVATE -fopenmp -static-openmp)
 
 # 16KB page alignment for Android 15+ (API 35+)
 target_link_options(zetla PRIVATE "-Wl,-z,max-page-size=16384")

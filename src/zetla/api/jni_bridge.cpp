@@ -1,5 +1,6 @@
 #include "jni_bridge.hpp"
 #include "dll_api.h"
+#include "../rag/zetla_rag.h"
 #include "nlohmann/json.hpp"
 #include <mutex>
 #include <vector>
@@ -137,6 +138,19 @@ JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeCreateSession(
     std::string m = jstring_to_string(env, model);
     std::string sp = jstring_to_string(env, system_prompt);
     zetla_response resp = zetla_create_session(m.c_str(), sp.c_str());
+    std::string result = resp.success
+        ? std::string(resp.data)
+        : std::string(resp.error);
+    zetla_free_response(&resp);
+    return env->NewStringUTF(result.c_str());
+}
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeCreateSpace(
+    JNIEnv* env, jclass, jstring model, jstring system_prompt
+) {
+    std::string m = jstring_to_string(env, model);
+    std::string sp = jstring_to_string(env, system_prompt);
+    zetla_response resp = zetla_create_space(m.c_str(), sp.c_str());
     std::string result = resp.success
         ? std::string(resp.data)
         : std::string(resp.error);
@@ -741,4 +755,200 @@ JNIEXPORT jboolean JNICALL Java_com_zetla_data_ZetlaCore_nativeSendMessageWithIm
     }
 
     return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+// 
+// RAG (Hyperbolic Search) JNI Bridge
+// 
+
+#include "../rag/rag_tool.hpp"
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeRagInit(
+    JNIEnv* env, jclass, jstring model_path) {
+    const char* mp = env->GetStringUTFChars(model_path, nullptr);
+    bool ok = zetla::rag::RagManager::instance().init_embedder(mp);
+    env->ReleaseStringUTFChars(model_path, mp);
+    return env->NewStringUTF(ok ? "{\"ok\":true}" : "{\"ok\":false}");
+}
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeRagAddFile(
+    JNIEnv* env, jclass, jstring session_id, jstring file_path, jstring text_content) {
+    const char* sid = env->GetStringUTFChars(session_id, nullptr);
+    const char* fp  = env->GetStringUTFChars(file_path, nullptr);
+    const char* txt = env->GetStringUTFChars(text_content, nullptr);
+
+    zetla::rag::RagManager::instance().create_session(sid);
+    int n = zetla::rag::RagManager::instance().add_file(sid, fp, txt);
+
+    env->ReleaseStringUTFChars(session_id, sid);
+    env->ReleaseStringUTFChars(file_path, fp);
+    env->ReleaseStringUTFChars(text_content, txt);
+
+    char buf[128];
+    snprintf(buf, sizeof(buf), "{\"chunks\":%d}", n);
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeRagSearch(
+    JNIEnv* env, jclass, jstring session_id, jstring query, jint top_k, jstring scope_file) {
+    const char* sid = env->GetStringUTFChars(session_id, nullptr);
+    const char* q   = env->GetStringUTFChars(query, nullptr);
+    const char* sf  = scope_file ? env->GetStringUTFChars(scope_file, nullptr) : nullptr;
+
+    std::string result = zetla::rag::RagManager::instance().search(
+        sid, q, top_k, sf ? sf : "");
+
+    env->ReleaseStringUTFChars(session_id, sid);
+    env->ReleaseStringUTFChars(query, q);
+    if (sf) env->ReleaseStringUTFChars(scope_file, sf);
+
+    return env->NewStringUTF(result.c_str());
+}
+
+JNIEXPORT jint JNICALL Java_com_zetla_data_ZetlaCore_nativeRagChunkCount(
+    JNIEnv* env, jclass, jstring session_id) {
+    const char* sid = env->GetStringUTFChars(session_id, nullptr);
+    int n = zetla::rag::RagManager::instance().chunk_count(sid);
+    env->ReleaseStringUTFChars(session_id, sid);
+    return n;
+}
+
+JNIEXPORT jlong JNICALL Java_com_zetla_data_ZetlaCore_nativeRagMemoryBytes(
+    JNIEnv* env, jclass, jstring session_id) {
+    const char* sid = env->GetStringUTFChars(session_id, nullptr);
+    size_t n = zetla::rag::RagManager::instance().memory_bytes(sid);
+    env->ReleaseStringUTFChars(session_id, sid);
+    return (jlong)n;
+}
+
+JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeRagRemoveSession(
+    JNIEnv* env, jclass, jstring session_id) {
+    const char* sid = env->GetStringUTFChars(session_id, nullptr);
+    zetla::rag::RagManager::instance().remove_session(sid);
+    env->ReleaseStringUTFChars(session_id, sid);
+}
+
+static jobject g_rag_debug_obj = nullptr;
+
+static void rag_debug_callback(const char* msg) {
+    if (!g_rag_debug_obj) return;
+    JNIEnv* env = get_env();
+    if (!env) return;
+    jclass cls = env->GetObjectClass(g_rag_debug_obj);
+    jmethodID mid = env->GetMethodID(cls, "onDebug", "(Ljava/lang/String;)V");
+    if (mid) {
+        jstring jmsg = env->NewStringUTF(msg);
+        env->CallVoidMethod(g_rag_debug_obj, mid, jmsg);
+        env->DeleteLocalRef(jmsg);
+    }
+    env->DeleteLocalRef(cls);
+}
+
+JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeRagSetDebugCallback(
+    JNIEnv* env, jclass, jobject callback) {
+    if (g_rag_debug_obj) env->DeleteGlobalRef(g_rag_debug_obj);
+    g_rag_debug_obj = callback ? env->NewGlobalRef(callback) : nullptr;
+    zetla::rag::RagManager::instance().set_debug_callback(
+        callback ? rag_debug_callback : nullptr);
+}
+
+JNIEXPORT jint JNICALL Java_com_zetla_data_ZetlaCore_nativeSetSessionRag(
+    JNIEnv* env, jclass, jstring session_id, jint enabled) {
+    const char* sid = env->GetStringUTFChars(session_id, nullptr);
+    int result = zetla_set_session_rag(sid, enabled);
+    env->ReleaseStringUTFChars(session_id, sid);
+    return result;
+}
+
+JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeInitRagModel(
+    JNIEnv* env, jclass, jstring model_dir) {
+    const char* md = env->GetStringUTFChars(model_dir, nullptr);
+    zetla_init_rag_model(md);
+    env->ReleaseStringUTFChars(model_dir, md);
+}
+
+JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeSetProjectionEnabled(
+    JNIEnv* env, jclass, jboolean enabled) {
+    zetla::rag::RagManager::instance().set_projection_enabled(enabled);
+}
+
+JNIEXPORT void JNICALL Java_com_zetla_data_ZetlaCore_nativeSetRagConfig(
+    JNIEnv* env, jclass, jstring config_json) {
+    const char* json = env->GetStringUTFChars(config_json, nullptr);
+    zetla_set_rag_config_json(json);
+    env->ReleaseStringUTFChars(config_json, json);
+}
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeGetRagConfig(
+    JNIEnv* env, jclass) {
+    char* result = zetla_get_rag_config_json();
+    jstring js = env->NewStringUTF(result);
+    zetla_free_string(result);
+    return js;
+}
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeAddSpaceFile(
+    JNIEnv* env, jclass, jstring session_id, jstring file_path, jstring text_content) {
+    const char* sid = env->GetStringUTFChars(session_id, nullptr);
+    const char* fp  = env->GetStringUTFChars(file_path, nullptr);
+    const char* txt = env->GetStringUTFChars(text_content, nullptr);
+
+    zetla_response resp = zetla_add_space_file(sid, fp, txt);
+    std::string result = resp.success ? std::string(resp.data) : std::string(resp.error);
+
+    env->ReleaseStringUTFChars(session_id, sid);
+    env->ReleaseStringUTFChars(file_path, fp);
+    env->ReleaseStringUTFChars(text_content, txt);
+    zetla_free_response(&resp);
+    return env->NewStringUTF(result.c_str());
+}
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeListSpaceFiles(
+    JNIEnv* env, jclass, jstring session_id) {
+    const char* sid = env->GetStringUTFChars(session_id, nullptr);
+    zetla_response resp = zetla_list_space_files(sid);
+    std::string result = resp.success ? std::string(resp.data) : std::string(resp.error);
+    env->ReleaseStringUTFChars(session_id, sid);
+    zetla_free_response(&resp);
+    return env->NewStringUTF(result.c_str());
+}
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeIsSpace(
+    JNIEnv* env, jclass, jstring session_id) {
+    const char* sid = env->GetStringUTFChars(session_id, nullptr);
+    zetla_response resp = zetla_is_space(sid);
+    std::string result = resp.success ? std::string(resp.data) : std::string(resp.error);
+    env->ReleaseStringUTFChars(session_id, sid);
+    zetla_free_response(&resp);
+    return env->NewStringUTF(result.c_str());
+}
+
+JNIEXPORT jboolean JNICALL Java_com_zetla_data_ZetlaCore_nativeSaveRagSession(
+    JNIEnv* env, jclass, jstring session_id, jstring dir_path) {
+    const char* sid = env->GetStringUTFChars(session_id, nullptr);
+    const char* dir = env->GetStringUTFChars(dir_path, nullptr);
+    int result = zetla_rag_save_session(sid, dir);
+    env->ReleaseStringUTFChars(session_id, sid);
+    env->ReleaseStringUTFChars(dir_path, dir);
+    return result == ZETLA_RAG_OK ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL Java_com_zetla_data_ZetlaCore_nativeLoadRagSession(
+    JNIEnv* env, jclass, jstring session_id, jstring dir_path) {
+    const char* sid = env->GetStringUTFChars(session_id, nullptr);
+    const char* dir = env->GetStringUTFChars(dir_path, nullptr);
+    int result = zetla_rag_load_session(sid, dir);
+    env->ReleaseStringUTFChars(session_id, sid);
+    env->ReleaseStringUTFChars(dir_path, dir);
+    return result == ZETLA_RAG_OK ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL Java_com_zetla_data_ZetlaCore_nativeExtractFileText(
+    JNIEnv* env, jclass, jstring file_path) {
+    const char* fp = env->GetStringUTFChars(file_path, nullptr);
+    char* result = zetla_extract_file_text(fp);
+    jstring js = env->NewStringUTF(result);
+    zetla_free_string(result);
+    env->ReleaseStringUTFChars(file_path, fp);
+    return js;
 }

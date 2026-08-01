@@ -1,8 +1,14 @@
 package com.zetla.ui.screens.settings
 
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,13 +22,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -79,6 +89,19 @@ fun SettingsScreen(
     var ttsReady by remember { mutableStateOf(false) }
     var previewPlaybackRate by remember { mutableFloatStateOf(1.0f) }
     val context = LocalContext.current
+
+    /* RAG test disabled
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        uris.forEach { selectedUri ->
+            val fileAttachment = copyUriToCache(context, selectedUri)
+            if (fileAttachment != null) {
+                viewModel.onUiEvent(SettingsUiEvent.AttachRagFile(fileAttachment))
+            }
+        }
+    }
+    */
 
     LaunchedEffect(uiState.savedMessage, uiState.error) {
         uiState.savedMessage?.let {
@@ -563,6 +586,54 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(24.dp))
 
+            //  RAG Settings 
+            Text(
+                text = "RAG (Document Search)",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(8.dp))
+
+            // Rerank toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("BM25 + Lorentz Reranking", style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f))
+                Switch(
+                    checked = uiState.ragRerankEnabled,
+                    onCheckedChange = { viewModel.onUiEvent(SettingsUiEvent.SetRagRerank(it)) }
+                )
+            }
+
+            // Projection toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Hyperbolic Projection", style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f))
+                Switch(
+                    checked = uiState.ragProjectionEnabled,
+                    onCheckedChange = { viewModel.onUiEvent(SettingsUiEvent.SetRagProjection(it)) }
+                )
+            }
+
+            // BM25 Alpha slider
+            Text("BM25 Alpha: ${"%.2f".format(uiState.ragBm25Alpha)}",
+                style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = uiState.ragBm25Alpha,
+                onValueChange = { viewModel.onUiEvent(SettingsUiEvent.SetRagBm25Alpha(it)) },
+                valueRange = 0f..1f,
+                steps = 9
+            )
+
+            Spacer(Modifier.height(24.dp))
+
             // System Prompt
             Text(
                 text = "System Prompt",
@@ -633,6 +704,8 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(16.dp))
 
+            /*  RAG Test Controls disabled  */
+
             if (uiState.version.isNotEmpty()) {
                 Text(
                     text = "Zetla Core v${uiState.version}",
@@ -641,5 +714,76 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+}
+
+private fun queryCursorField(context: android.content.Context, uri: Uri, column: String): String? {
+    return context.contentResolver.query(uri, arrayOf(column), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            val idx = cursor.getColumnIndex(column)
+            if (idx >= 0) cursor.getString(idx) else null
+        } else null
+    }
+}
+
+private fun queryCursorLong(context: android.content.Context, uri: Uri, column: String): Long {
+    return context.contentResolver.query(uri, arrayOf(column), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            val idx = cursor.getColumnIndex(column)
+            if (idx >= 0) cursor.getLong(idx) else 0L
+        } else 0L
+    } ?: 0L
+}
+
+private fun copyUriToCache(context: android.content.Context, uri: Uri): com.zetla.domain.model.FileAttachment? {
+    return try {
+        val fileName = queryCursorField(context, uri, OpenableColumns.DISPLAY_NAME) ?: "file"
+        val fileSize = queryCursorLong(context, uri, OpenableColumns.SIZE)
+
+        if (fileSize > 10 * 1024 * 1024) {
+            Log.w("SettingsRAG", "File too large: $fileSize bytes")
+            return null
+        }
+
+        val contentResolver = context.contentResolver
+        val cacheDir = java.io.File(context.cacheDir, "zetla_attachments")
+        cacheDir.mkdirs()
+        val destFile = java.io.File(cacheDir, fileName)
+
+        val copied = contentResolver.openInputStream(uri)?.use { input ->
+            destFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+            true
+        } ?: false
+
+        if (!copied || !destFile.exists()) {
+            Log.w("SettingsRAG", "Failed to copy file to cache")
+            return null
+        }
+
+        val ext = fileName.substringAfterLast('.', "").lowercase()
+        val fileType = when (ext) {
+            "pdf" -> com.zetla.domain.model.FileType.PDF
+            "png", "jpg", "jpeg", "gif", "webp", "bmp" -> com.zetla.domain.model.FileType.IMAGE
+            "xlsx", "xls", "csv" -> com.zetla.domain.model.FileType.SPREADSHEET
+            "pptx", "ppt" -> com.zetla.domain.model.FileType.PRESENTATION
+            "docx", "doc", "rtf" -> com.zetla.domain.model.FileType.DOCUMENT
+            "txt", "md" -> com.zetla.domain.model.FileType.TEXT
+            else -> com.zetla.domain.model.FileType.UNKNOWN
+        }
+
+        Log.d("SettingsRAG", "File attached: $fileName (${fileSize}B, type=$fileType, path=${destFile.absolutePath})")
+
+        com.zetla.domain.model.FileAttachment(
+            id = UUID.randomUUID().toString(),
+            name = fileName,
+            path = destFile.absolutePath,
+            type = fileType,
+            size = fileSize
+        )
+    } catch (e: Exception) {
+        Log.e("SettingsRAG", "Failed to copy file", e)
+        null
     }
 }

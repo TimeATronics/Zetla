@@ -8,6 +8,7 @@ import com.zetla.domain.model.ModelParams
 import com.zetla.domain.repository.ConfigRepository
 import com.zetla.domain.repository.ProviderConfig
 import com.zetla.domain.repository.ProviderInfo
+import com.zetla.domain.repository.RagConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -32,6 +33,7 @@ class ConfigRepositoryImpl @Inject constructor(
         private const val KEY_EXA_API_KEY = "exa_api_key"
         private const val KEY_COLOR_SCHEME = "color_scheme"
         private const val KEY_TTS_VOICE = "tts_voice"
+        private const val KEY_RAG_CONFIG = "rag_config"
         private const val DEFAULT_MODEL = ""
         private const val DEFAULT_PROVIDER = ""
     }
@@ -108,6 +110,9 @@ class ConfigRepositoryImpl @Inject constructor(
                     val exaKey = sharedPreferences.getString(KEY_EXA_API_KEY, "") ?: ""
                     ZetlaCore.nativeSetExaApiKey(exaKey)
                     ZetlaCore.nativeSetSearchProvider("exa")
+                    // Push RAG config to native layer
+                    val ragConfig = getRagConfig()
+                    setRagConfig(ragConfig)
             }
             ok
         } catch (_: Exception) {
@@ -306,5 +311,34 @@ class ConfigRepositoryImpl @Inject constructor(
         if (modelsDevCache.getFlatIndex() == null) {
             modelsDevCache.refresh()
         }
+    }
+
+    override fun setRagConfig(config: RagConfig) {
+        val json = JSONObject().apply {
+            put("bm25_alpha", config.bm25Alpha.toDouble())
+            put("projection_enabled", config.projectionEnabled)
+            put("rerank_enabled", config.rerankEnabled)
+            put("chunk_chars", config.chunkChars)
+            put("overlap_chars", config.overlapChars)
+        }
+        sharedPreferences.edit().putString(KEY_RAG_CONFIG, json.toString()).apply()
+        try { ZetlaCore.nativeSetRagConfig(json.toString()) } catch (_: Throwable) {}
+    }
+
+    override fun getRagConfig(): RagConfig {
+        val stored = sharedPreferences.getString(KEY_RAG_CONFIG, "") ?: ""
+        if (stored.isNotBlank()) {
+            return try {
+                val obj = JSONObject(stored)
+                RagConfig(
+                    bm25Alpha = obj.optDouble("bm25_alpha", 0.7).toFloat(),
+                    projectionEnabled = obj.optBoolean("projection_enabled", true),
+                    rerankEnabled = obj.optBoolean("rerank_enabled", true),
+                    chunkChars = obj.optInt("chunk_chars", 300),
+                    overlapChars = obj.optInt("overlap_chars", 60)
+                )
+            } catch (_: Throwable) { RagConfig() }
+        }
+        return RagConfig()
     }
 }

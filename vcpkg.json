@@ -1,0 +1,11 @@
+{
+  "name": "hgnfs",
+  "version": "0.1.0",
+  "dependencies": [
+    "eigen3",
+    "nlohmann-json",
+    "sqlite3",
+    "vulkan-headers",
+    {"name": "glslang", "features": ["tools"]}
+  ]
+}

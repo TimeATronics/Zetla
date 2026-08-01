@@ -2,6 +2,7 @@ package com.zetla.ui.screens.chat
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,22 +31,36 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -131,17 +147,19 @@ fun ChatScreen(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit, onNav
     val snackbarHostState = remember { SnackbarHostState() }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let { selectedUri ->
-            val fileAttachment = copyUriToCache(context, selectedUri)
-            if (fileAttachment != null) {
-                viewModel.onUiEvent(ChatUiEvent.OnAttachFile(fileAttachment))
-            } else {
-                coroutineScope.launch {
-                    snackbarHostState.showSnackbar("Failed to attach file")
-                }
-            }
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val files = uris.mapNotNull { copyUriToCache(context, it) }
+        if (files.isEmpty()) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("Failed to attach file") }
+            return@rememberLauncherForActivityResult
+        }
+        // In space setup mode: batch all files together
+        if (uiState.showSpaceSetup) {
+            viewModel.onUiEvent(ChatUiEvent.OnSpaceSetupFiles(files))
+        } else {
+            for (f in files) viewModel.onUiEvent(ChatUiEvent.OnAttachFile(f))
         }
     }
 
@@ -168,24 +186,48 @@ fun ChatScreen(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit, onNav
                         .systemBarsPadding()
                         .padding(top = 16.dp)
                 ) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                            .clickable {
-                                viewModel.onUiEvent(ChatUiEvent.OnNewChat)
-                                coroutineScope.launch { drawerState.close() }
-                            },
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    var showNewMenu by remember { mutableStateOf(false) }
+                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showNewMenu = true },
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
-                            Spacer(Modifier.width(12.dp))
-                            Text("New Chat", style = MaterialTheme.typography.bodyLarge)
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
+                                Spacer(Modifier.width(12.dp))
+                                Text("New", style = MaterialTheme.typography.bodyLarge)
+                                Spacer(Modifier.weight(1f))
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = showNewMenu,
+                            onDismissRequest = { showNewMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("New Chat") },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null) },
+                                onClick = {
+                                    showNewMenu = false
+                                    viewModel.onUiEvent(ChatUiEvent.OnNewChat)
+                                    coroutineScope.launch { drawerState.close() }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("New Space") },
+                                leadingIcon = { Icon(Icons.Default.Hub, contentDescription = null) },
+                                onClick = {
+                                    showNewMenu = false
+                                    viewModel.onUiEvent(ChatUiEvent.OnNewSpace)
+                                    coroutineScope.launch { drawerState.close() }
+                                }
+                            )
                         }
                     }
 
@@ -256,7 +298,10 @@ fun ChatScreen(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit, onNav
                                     viewModel.onUiEvent(
                                         ChatUiEvent.OnUpdateConversation(conv.copy(isStarred = isStarred))
                                     )
-                                }
+                                },
+                                isSpace = uiState.isSpace,
+                                hasSpaceFiles = uiState.spaceFileNames.isNotEmpty(),
+                                onClickSpaceFiles = { viewModel.onUiEvent(ChatUiEvent.OnToggleSpaceFiles) }
                             )
                         }
                     },
@@ -277,6 +322,7 @@ fun ChatScreen(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit, onNav
                     isWebSearchEnabled = uiState.isWebSearchEnabled,
                     isCodingEnabled = uiState.isCodingEnabled,
                     onCodingToggle = { viewModel.onUiEvent(ChatUiEvent.OnCodingToggled) },
+                    isSpace = uiState.isSpace,
                     isLoadingOrStreamingResponse = uiState.isLoadingResponse || uiState.isStreamingResponse,
                     onStopRequest = { viewModel.onUiEvent(ChatUiEvent.OnStopRequest) },
                     selectedModel = uiState.selectedModel,
@@ -443,6 +489,122 @@ fun ChatScreen(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit, onNav
         }
     )
 
+    // Space files dialog
+    if (uiState.showSpaceFiles) {
+        AlertDialog(
+            onDismissRequest = { viewModel.onUiEvent(ChatUiEvent.OnDismissSpaceFiles) },
+            title = { Text("Space Files") },
+            text = {
+                if (uiState.spaceFileNames.isEmpty()) {
+                    Text("No files added yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Column {
+                        uiState.spaceFileNames.forEach { name ->
+                            Text(
+                                "• ${java.io.File(name).name}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedButton(onClick = {
+                            filePickerLauncher.launch(arrayOf(
+                                "application/pdf",
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                "text/plain",
+                                "text/csv",
+                                "text/tab-separated-values",
+                                "text/markdown",
+                                "application/rtf",
+                                "*/*"
+                            ))
+                        }) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Add More Files")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.onUiEvent(ChatUiEvent.OnDismissSpaceFiles) }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    // Space setup modal - file upload BEFORE session creation
+    if (uiState.showSpaceSetup) {
+        val hasFiles = uiState.spaceSetupFileNames.isNotEmpty()
+        val isIndexing = uiState.isIndexingSpace
+        AlertDialog(
+            onDismissRequest = { if (!isIndexing) viewModel.onUiEvent(ChatUiEvent.OnSpaceSetupDismiss) },
+            title = { Text(if (isIndexing) "Setting Up Space..." else "New Space") },
+            text = {
+                Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                    if (isIndexing) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp))
+                        Text(uiState.spaceIndexProgress,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary)
+                    } else {
+                        OutlinedTextField(
+                            value = uiState.spaceSetupName,
+                            onValueChange = { viewModel.onUiEvent(ChatUiEvent.OnSpaceSetupNameChanged(it)) },
+                            label = { Text("Space name") },
+                            placeholder = { Text("e.g. My Research") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        if (hasFiles) {
+                            Text("Selected files:", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            uiState.spaceSetupFileNames.forEach { name ->
+                                Text("• $name", style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(start = 8.dp, top = 2.dp))
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                        Button(onClick = {
+                            filePickerLauncher.launch(arrayOf(
+                                "application/pdf",
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                "text/plain", "text/csv", "text/tab-separated-values",
+                                "text/markdown", "application/rtf", "*/*"
+                            ))
+                        }) {
+                            Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (hasFiles) "Add More Files" else "Upload Files to Get Started")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (isIndexing) {
+                    // No button during indexing
+                } else if (hasFiles) {
+                    Button(onClick = { viewModel.onUiEvent(ChatUiEvent.OnSpaceSetupConfirm) }) {
+                        Text("Create Space")
+                    }
+                }
+            },
+            dismissButton = {
+                if (!isIndexing) {
+                    TextButton(onClick = { viewModel.onUiEvent(ChatUiEvent.OnSpaceSetupDismiss) }) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        )
+    }
+
     AttachmentListModal(
         isVisible = showAttachmentList,
         files = uiState.attachedFiles,
@@ -555,6 +717,64 @@ private fun queryCursorLong(context: Context, uri: Uri, column: String): Long {
 
 private fun copyUriToCache(context: Context, uri: Uri): FileAttachment? {
     return try {
+        val mimeType = context.contentResolver.getType(uri) ?: "unknown"
+        val isVirtual = isVirtualFile(context, uri)
+        Log.d("ChatScreen", "File picked: uri=$uri mime=$mimeType virtual=$isVirtual")
+
+        val contentResolver = context.contentResolver
+        val cacheDir = java.io.File(context.cacheDir, "zetla_attachments")
+        cacheDir.mkdirs()
+
+        if (isVirtual) {
+            // Google Drive virtual file (Docs, Sheets, Slides) - export to native format
+            val streamTypes = contentResolver.getStreamTypes(uri, "*/*")
+            Log.d("ChatScreen", "Virtual file stream types: ${streamTypes?.joinToString()}")
+            // Prefer native Office formats (we have C++ handlers), fall back to PDF
+            val exportMime = streamTypes?.firstOrNull { it == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }
+                ?: streamTypes?.firstOrNull { it == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }
+                ?: streamTypes?.firstOrNull { it == "application/vnd.openxmlformats-officedocument.presentationml.presentation" }
+                ?: streamTypes?.firstOrNull { it == "application/pdf" }
+                ?: streamTypes?.firstOrNull()
+            if (exportMime == null) {
+                Log.w("ChatScreen", "No exportable format for virtual file")
+                return null
+            }
+            val displayName = queryCursorField(context, uri, OpenableColumns.DISPLAY_NAME) ?: "document"
+            val ext = when (exportMime) {
+                "application/pdf" -> ".pdf"
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> ".docx"
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> ".xlsx"
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> ".pptx"
+                "text/plain" -> ".txt"
+                else -> ""
+            }
+            val fileName = if (displayName.contains(".")) {
+                displayName.substringBeforeLast(".") + ext
+            } else {
+                displayName + ext
+            }
+            val destFile = java.io.File(cacheDir, fileName)
+            contentResolver.openTypedAssetFileDescriptor(uri, exportMime, null)?.use { assetFd ->
+                assetFd.createInputStream().use { input ->
+                    destFile.outputStream().use { output -> input.copyTo(output) }
+                }
+            } ?: run {
+                Log.w("ChatScreen", "Failed to open virtual file for export")
+                return null
+            }
+            val fileSize = destFile.length()
+            Log.d("ChatScreen", "Virtual file exported: $fileName (${fileSize}B, mime=$exportMime)")
+            val fileType = fileTypeFromNameMime(fileName, exportMime)
+            return FileAttachment(
+                id = java.util.UUID.randomUUID().toString(),
+                name = fileName,
+                path = destFile.absolutePath,
+                type = fileType,
+                size = fileSize
+            )
+        }
+
+        // Standard file
         val fileName = queryCursorField(context, uri, OpenableColumns.DISPLAY_NAME) ?: "file"
         val fileSize = queryCursorLong(context, uri, OpenableColumns.SIZE)
 
@@ -563,15 +783,9 @@ private fun copyUriToCache(context: Context, uri: Uri): FileAttachment? {
             return null
         }
 
-        val contentResolver = context.contentResolver
-        val cacheDir = java.io.File(context.cacheDir, "zetla_attachments")
-        cacheDir.mkdirs()
         val destFile = java.io.File(cacheDir, fileName)
-
         val copied = contentResolver.openInputStream(uri)?.use { input ->
-            destFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
+            destFile.outputStream().use { output -> input.copyTo(output) }
             true
         } ?: false
 
@@ -581,17 +795,8 @@ private fun copyUriToCache(context: Context, uri: Uri): FileAttachment? {
         }
 
         val ext = fileName.substringAfterLast('.', "").lowercase()
-        val fileType = when (ext) {
-            "pdf" -> FileType.PDF
-            "png", "jpg", "jpeg", "gif", "webp", "bmp" -> FileType.IMAGE
-            "xlsx", "xls", "csv" -> FileType.SPREADSHEET
-            "pptx", "ppt" -> FileType.PRESENTATION
-            "docx", "doc", "rtf" -> FileType.DOCUMENT
-            "txt", "md" -> FileType.TEXT
-            else -> FileType.UNKNOWN
-        }
-
-        Log.d("ChatScreen", "File attached: $fileName (${fileSize}B, type=$fileType, path=${destFile.absolutePath})")
+        val fileType = fileTypeFromNameMime(fileName, mimeType)
+        Log.d("ChatScreen", "File cached: $fileName ext='$ext' mime=$mimeType type=$fileType path=${destFile.absolutePath}")
 
         FileAttachment(
             id = java.util.UUID.randomUUID().toString(),
@@ -603,5 +808,30 @@ private fun copyUriToCache(context: Context, uri: Uri): FileAttachment? {
     } catch (e: Exception) {
         Log.e("ChatScreen", "Failed to copy file", e)
         null
+    }
+}
+
+private fun isVirtualFile(context: Context, uri: Uri): Boolean {
+    if (!DocumentsContract.isDocumentUri(context, uri)) return false
+    val cursor = context.contentResolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_FLAGS), null, null, null)
+    cursor?.use {
+        if (it.moveToFirst()) {
+            val flags = it.getInt(0)
+            return (flags and DocumentsContract.Document.FLAG_VIRTUAL_DOCUMENT) != 0
+        }
+    }
+    return false
+}
+
+private fun fileTypeFromNameMime(fileName: String, mimeType: String): com.zetla.domain.model.FileType {
+    val ext = fileName.substringAfterLast('.', "").lowercase()
+    return when {
+        ext == "pdf" || mimeType == "application/pdf" -> com.zetla.domain.model.FileType.PDF
+        ext in listOf("png", "jpg", "jpeg", "gif", "webp", "bmp") || mimeType.startsWith("image/") -> com.zetla.domain.model.FileType.IMAGE
+        ext in listOf("xlsx", "xls", "csv") || mimeType in listOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "text/csv") -> com.zetla.domain.model.FileType.SPREADSHEET
+        ext in listOf("pptx", "ppt") || mimeType in listOf("application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/vnd.ms-powerpoint") -> com.zetla.domain.model.FileType.PRESENTATION
+        ext in listOf("docx", "doc", "rtf") || mimeType in listOf("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword", "application/rtf") -> com.zetla.domain.model.FileType.DOCUMENT
+        ext in listOf("txt", "md") || mimeType in listOf("text/plain", "text/markdown", "text/tab-separated-values") -> com.zetla.domain.model.FileType.TEXT
+        else -> com.zetla.domain.model.FileType.UNKNOWN
     }
 }

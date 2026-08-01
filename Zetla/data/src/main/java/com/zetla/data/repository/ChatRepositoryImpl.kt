@@ -24,6 +24,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.update
 import kotlin.coroutines.resume
 import java.util.UUID
+import org.json.JSONArray
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -429,6 +430,72 @@ class ChatRepositoryImpl @Inject constructor() : ChatRepository {
         }
     }
 
+    override suspend fun createSpace(title: String, model: Model, systemPrompt: String): Conversation =
+        withContext(Dispatchers.IO) {
+            val json = ZetlaCore.nativeCreateSpace(model.id, systemPrompt)
+            val obj = JSONObject(json)
+            if (obj.optBoolean("success", false)) {
+                val data = obj.optString("data", "")
+                val dataObj = JSONObject(data)
+                val conv = Conversation(
+                    id = parseUuid(dataObj.optString("session_id", UUID.randomUUID().toString())),
+                    selectedModel = model,
+                    title = title,
+                    isSpace = true,
+                    createdAt = dataObj.optLong("created_at", System.currentTimeMillis()),
+                    lastUpdatedAt = dataObj.optLong("last_active", System.currentTimeMillis())
+                )
+                conversationsFlow.update { it + conv }
+                Log.d(TAG, "createSpace: id=${conv.id} title='$title'")
+                conv
+            } else {
+                throw Exception(obj.optString("error", "Create space failed"))
+            }
+        }
+
+    override suspend fun setSessionRag(sessionId: String, enabled: Boolean): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                ZetlaCore.nativeSetSessionRag(nativeId(sessionId), enabled)
+            } catch (_: Exception) { false }
+        }
+    }
+
+    override suspend fun addSpaceFile(sessionId: String, filePath: String, textContent: String): String {
+        return withContext(Dispatchers.IO) {
+            try {
+                ZetlaCore.nativeAddSpaceFile(nativeId(sessionId), filePath, textContent)
+            } catch (e: Exception) {
+                """{"error":"${e.message}"}"""
+            }
+        }
+    }
+
+    override suspend fun listSpaceFiles(sessionId: String): List<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val json = ZetlaCore.nativeListSpaceFiles(nativeId(sessionId))
+                val arr = JSONArray(json)
+                (0 until arr.length()).map { i ->
+                    val f = arr.getJSONObject(i)
+                    f.optString("path", f.optString("name", ""))
+                }.filter { it.isNotEmpty() }
+            } catch (_: Exception) { emptyList() }
+        }
+    }
+
+    override suspend fun isSpace(sessionId: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val json = ZetlaCore.nativeIsSpace(nativeId(sessionId))
+                val obj = JSONObject(json)
+                val data = obj.optString("data", "{}")
+                val dataObj = JSONObject(data)
+                dataObj.optBoolean("is_space", false)
+            } catch (_: Exception) { false }
+        }
+    }
+
     override suspend fun compactSession(sessionId: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val json = ZetlaCore.nativeCompactSession(nativeId(sessionId))
@@ -465,6 +532,7 @@ class ChatRepositoryImpl @Inject constructor() : ChatRepository {
                     selectedModel = Model(obj.optString("model", ""), obj.optString("model", "")),
                     title = obj.optString("title", "New Chat"),
                     isStarred = obj.optBoolean("is_starred", false),
+                    isSpace = obj.optBoolean("is_space", false),
                     createdAt = obj.optLong("created_at", System.currentTimeMillis()),
                     lastUpdatedAt = obj.optLong("last_active", System.currentTimeMillis()),
                     hasCompactedContext = obj.optBoolean("has_compacted_summary", false)

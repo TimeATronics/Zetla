@@ -32,7 +32,17 @@ data class ChatUiState(
     val isExtractingPdf: Boolean = false,
     val error: String? = null,
     val modelsByProvider: Map<String, List<Model>> = emptyMap(),
-    val reasoningEffort: String = ""
+    val reasoningEffort: String = "",
+    val isSpace: Boolean = false,
+    val isRagEnabled: Boolean = false,
+    val spaceFileNames: List<String> = emptyList(),
+    val showSpaceFiles: Boolean = false,
+    val showSpaceSetup: Boolean = false,
+    val spaceSetupName: String = "",
+    val spaceSetupFilePaths: List<String> = emptyList(),
+    val spaceSetupFileNames: List<String> = emptyList(),
+    val isIndexingSpace: Boolean = false,
+    val spaceIndexProgress: String = ""
 )
 
 @Immutable

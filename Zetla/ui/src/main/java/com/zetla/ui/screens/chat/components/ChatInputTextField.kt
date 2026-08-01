@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.ModelTraining
 import androidx.compose.material.icons.filled.Stop
@@ -49,6 +50,9 @@ fun ChatInputTextField(
     isWebSearchEnabled: Boolean,
     isCodingEnabled: Boolean = false,
     onCodingToggle: () -> Unit = {},
+    isSpace: Boolean = false,
+    isRagEnabled: Boolean = false,
+    onRagToggle: () -> Unit = {},
     isLoadingOrStreamingResponse: Boolean,
     onStopRequest: () -> Unit,
     selectedModel: Model = Model("", ""),

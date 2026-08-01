@@ -16,7 +16,9 @@ object ZetlaCore {
     external fun nativeListModels(): String
 
     external fun nativeCreateSession(model: String, systemPrompt: String): String
+    external fun nativeCreateSpace(model: String, systemPrompt: String): String
     external fun nativeDeleteSession(sessionId: String): String
+    external fun nativeIsSpace(sessionId: String): String
     external fun nativeGetSessionInfo(sessionId: String): String
     external fun nativeLoadSession(sessionId: String): String
     external fun nativeListSessions(): String
@@ -62,6 +64,26 @@ object ZetlaCore {
     external fun nativeSetExaApiKey(apiKey: String)
     external fun nativeSetToolExecutor(sessionId: String, callback: ToolExecutorCallback?)
     external fun nativeCancelRequest()
+
+    external fun nativeRagInit(modelPath: String): String
+    external fun nativeRagAddFile(sessionId: String, filePath: String, textContent: String): String
+    external fun nativeRagSearch(sessionId: String, query: String, topK: Int, scopeFile: String?): String
+    external fun nativeRagChunkCount(sessionId: String): Int
+    external fun nativeRagMemoryBytes(sessionId: String): Long
+    external fun nativeRagRemoveSession(sessionId: String)
+    external fun nativeRagSetDebugCallback(callback: RagDebugCallback?)
+
+    //  Space (RAG-enabled session) 
+    external fun nativeSetSessionRag(sessionId: String, enabled: Boolean): Boolean
+    external fun nativeInitRagModel(modelDir: String)
+    external fun nativeSetProjectionEnabled(enabled: Boolean)
+    external fun nativeSetRagConfig(configJson: String)
+    external fun nativeGetRagConfig(): String
+    external fun nativeAddSpaceFile(sessionId: String, filePath: String, textContent: String): String
+    external fun nativeListSpaceFiles(sessionId: String): String
+    external fun nativeExtractFileText(filePath: String): String
+    external fun nativeSaveRagSession(sessionId: String, dirPath: String): Boolean
+    external fun nativeLoadRagSession(sessionId: String, dirPath: String): Boolean
 }
 
 interface StreamCallback {
@@ -80,4 +102,8 @@ interface AgenticCallback {
 
 interface ToolExecutorCallback {
     fun execute(sessionId: String, toolName: String, argumentsJson: String): String
+}
+
+interface RagDebugCallback {
+    fun onDebug(message: String)
 }

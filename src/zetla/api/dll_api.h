@@ -39,7 +39,9 @@ ZETLA_API zetla_response zetla_set_provider(const char* provider_id);
 ZETLA_API zetla_response zetla_list_models(void);
 
 ZETLA_API zetla_response zetla_create_session(const char* model, const char* system_prompt);
+ZETLA_API zetla_response zetla_create_space(const char* model, const char* system_prompt);
 ZETLA_API zetla_response zetla_delete_session(const char* session_id);
+ZETLA_API zetla_response zetla_is_space(const char* session_id);
 ZETLA_API zetla_response zetla_get_session_info(const char* session_id);
 
 ZETLA_API int zetla_send_message(const char* session_id, const char* message, zetla_token_fn callback);
@@ -62,6 +64,10 @@ ZETLA_API zetla_response zetla_list_provider_configs(void);
 ZETLA_API zetla_response zetla_list_providers_models(void);
 
 ZETLA_API int zetla_set_session_web_search(const char* session_id, int enabled);
+ZETLA_API int zetla_set_session_rag(const char* session_id, int enabled);
+ZETLA_API void zetla_init_rag_model(const char* model_dir);
+ZETLA_API void zetla_set_rag_config_json(const char* json_str);
+ZETLA_API char* zetla_get_rag_config_json(void);
 ZETLA_API void zetla_set_search_provider(const char* provider);
 ZETLA_API void zetla_set_exa_api_key(const char* api_key);
 
@@ -118,6 +124,10 @@ ZETLA_API zetla_response zetla_remove_file(
 );
 
 ZETLA_API zetla_response zetla_list_files(const char* session_id);
+
+ZETLA_API zetla_response zetla_add_space_file(const char* session_id, const char* file_path, const char* text_content);
+ZETLA_API zetla_response zetla_list_space_files(const char* session_id);
+ZETLA_API char* zetla_extract_file_text(const char* file_path);
 
 ZETLA_API int zetla_send_message_with_files(
     const char* session_id,

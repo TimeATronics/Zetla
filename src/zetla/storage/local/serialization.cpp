@@ -13,6 +13,8 @@ namespace zetla::storage {
         j["model"] = session.model;
         j["title"] = session.title;
         j["is_starred"] = session.is_starred;
+        j["is_space"] = session.is_space;
+        j["space_files"] = session.space_files_json.empty() ? nlohmann::json::array() : nlohmann::json::parse(session.space_files_json);
         j["system_prompt"] = session.system_prompt;
 
         nlohmann::json msgs = nlohmann::json::array();
@@ -61,6 +63,10 @@ namespace zetla::storage {
             out.model = j.value("model", "");
             out.title = j.value("title", "");
             out.is_starred = j.value("is_starred", false);
+            out.is_space = j.value("is_space", false);
+            if (j.contains("space_files")) {
+                out.space_files_json = j["space_files"].dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+            }
             out.system_prompt = j.value("system_prompt", "");
             out.compacted_summary = j.value("compacted_summary", "");
             out.created_at_ms = j.value("created_at_ms", 0);
