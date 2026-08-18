@@ -46,7 +46,7 @@ namespace zetla::providers {
             const core::LLMRequest& request,
             core::TokenCallback callback
         ) {
-            std::string body = chat_route.protocol.build_body(request);
+            std::string body = chat_route.build_body(request);
             // Add streaming fields to body
             auto body_json = nlohmann::json::parse(body);
             body_json["stream"] = true;
@@ -132,7 +132,7 @@ namespace zetla::providers {
             const core::LLMRequest& request,
             core::SseCallback callback
         ) {
-            std::string body = chat_route.protocol.build_body(request);
+            std::string body = chat_route.build_body(request);
             std::string url = chat_route.render_url(request.model);
             std::string api_key = extract_route_api_key(chat_route);
 
@@ -177,7 +177,7 @@ namespace zetla::providers {
                 req.generation = core::GenerationOptions::defaults();
             }
 
-            std::string body_str = chat_route.protocol.build_body(req);
+            std::string body_str = chat_route.build_body(req);
 
             auto body_json = nlohmann::json::parse(body_str);
             body_json["stream"] = false;

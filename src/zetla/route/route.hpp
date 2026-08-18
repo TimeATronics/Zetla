@@ -64,5 +64,10 @@ namespace zetla::route {
             }
             return model;
         }
+
+        std::string build_body(const core::LLMRequest& req) const {
+            if (!protocol.build_body) return "{}";
+            return protocol.build_body(req, defaults);
+        }
     };
 }

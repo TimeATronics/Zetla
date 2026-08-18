@@ -7,7 +7,9 @@
 
 namespace zetla::route {
 
-    using BodyBuilder = std::function<std::string(const core::LLMRequest&)>;
+    struct RouteDefaults;
+
+    using BodyBuilder = std::function<std::string(const core::LLMRequest&, const RouteDefaults&)>;
 
     struct StreamState {
         std::string buffer;

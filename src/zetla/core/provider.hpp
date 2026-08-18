@@ -26,7 +26,7 @@ namespace zetla::core {
             const LLMRequest& request,
             TokenCallback callback
         ) override {
-            std::string body = chat_route_.protocol.build_body(request);
+            std::string body = chat_route_.build_body(request);
             std::string url = chat_route_.render_url(request.model);
             std::string api_key = extract_api_key();
 
@@ -92,7 +92,7 @@ namespace zetla::core {
             const LLMRequest& request,
             SseCallback callback
         ) override {
-            std::string body = chat_route_.protocol.build_body(request);
+            std::string body = chat_route_.build_body(request);
             std::string url = chat_route_.render_url(request.model);
             std::string api_key = extract_api_key();
 
@@ -130,7 +130,7 @@ namespace zetla::core {
                 req.generation = GenerationOptions::defaults();
             }
 
-            std::string body_str = chat_route_.protocol.build_body(req);
+            std::string body_str = chat_route_.build_body(req);
 
             auto body_json = nlohmann::json::parse(body_str);
             body_json["stream"] = false;

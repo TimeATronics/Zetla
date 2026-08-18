@@ -101,7 +101,7 @@ namespace zetla::protocols::openai_chat {
 
         if (defaults.supports_reasoning_effort) {
             auto it = request.provider_options.find("reasoning_effort");
-            if (it != request.provider_options.end()) {
+            if (it != request.provider_options.end() && it->second != "disabled") {
                 body["reasoning_effort"] = it->second;
             }
         }
@@ -249,8 +249,8 @@ namespace zetla::protocols::openai_chat {
     inline route::Protocol make_protocol() {
         route::Protocol p;
         p.id = "openai-chat";
-        p.build_body = [](const core::LLMRequest& req) -> std::string {
-            return build_body(req, route::RouteDefaults{});
+        p.build_body = [](const core::LLMRequest& req, const route::RouteDefaults& defaults) -> std::string {
+            return build_body(req, defaults);
         };
         p.parse_step = [](route::StreamState& state, const std::string& sse_data) {
             return parse_sse_event(state, sse_data);
