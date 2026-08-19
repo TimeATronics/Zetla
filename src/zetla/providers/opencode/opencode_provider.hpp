@@ -21,6 +21,10 @@ namespace zetla::providers {
             d.supports_presence_penalty = true;
             d.supports_response_format = true;
             d.supports_reasoning_effort = true;
+            d.extra_headers = {
+                "User-Agent: opencode/1.18.18",
+                "x-opencode-client: cli"
+            };
 
             p.chat_route_ = route::Route{
                 "openai-chat",

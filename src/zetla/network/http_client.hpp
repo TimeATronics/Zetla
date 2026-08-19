@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <functional>
+#include <vector>
 #include <curl/curl.h>
 #include <atomic>
 #include "../core/log.hpp"
@@ -129,7 +130,8 @@ namespace zetla::network {
             const std::string& api_key,
             StreamCallback on_data,
             std::string& error_out,
-            bool verify_ssl = false
+            bool verify_ssl = false,
+            const std::vector<std::string>& extra_headers = {}
         ) {
             CURL* curl = curl_easy_init();
             if (!curl) {
@@ -152,6 +154,9 @@ namespace zetla::network {
             }
             headers = curl_slist_append(headers, "Content-Type: application/json");
             headers = curl_slist_append(headers, "Accept: application/json, text/event-stream");
+            for (const auto& h : extra_headers) {
+                headers = curl_slist_append(headers, h.c_str());
+            }
 
             curl_easy_setopt(curl, CURLOPT_URL, full_url.c_str());
             curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -209,7 +214,8 @@ namespace zetla::network {
             const std::string& api_key,
             std::string& response_out,
             std::string& error_out,
-            bool verify_ssl = false
+            bool verify_ssl = false,
+            const std::vector<std::string>& extra_headers = {}
         ) {
             CURL* curl = curl_easy_init();
             if (!curl) {
@@ -230,6 +236,9 @@ namespace zetla::network {
             }
             headers = curl_slist_append(headers, "Content-Type: application/json");
             headers = curl_slist_append(headers, "Accept: application/json");
+            for (const auto& h : extra_headers) {
+                headers = curl_slist_append(headers, h.c_str());
+            }
 
             curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
             curl_easy_setopt(curl, CURLOPT_POST, 1L);

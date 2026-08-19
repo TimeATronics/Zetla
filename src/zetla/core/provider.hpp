@@ -78,7 +78,9 @@ namespace zetla::core {
                     });
                     parser.feed(chunk);
                 },
-                error
+                error,
+                false,
+                chat_route_.defaults.extra_headers
             );
 
             if (!ok) {
@@ -110,7 +112,9 @@ namespace zetla::core {
                     });
                     parser.feed(chunk);
                 },
-                error
+                error,
+                false,
+                chat_route_.defaults.extra_headers
             );
 
             if (!ok) {
@@ -141,7 +145,8 @@ namespace zetla::core {
             std::string response;
             std::string error;
 
-            bool ok = network::HttpClient::post_sync(url, sync_body, api_key, response, error);
+            bool ok = network::HttpClient::post_sync(url, sync_body, api_key, response, error, false,
+                chat_route_.defaults.extra_headers);
             if (!ok) {
                 result.content = "Error: " + error;
                 result.finish_reason = "error";

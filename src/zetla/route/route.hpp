@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <sstream>
+#include <vector>
 
 namespace zetla::route {
 
@@ -20,6 +21,7 @@ namespace zetla::route {
         bool supports_presence_penalty = true;
         bool supports_response_format = true;
         bool supports_reasoning_effort = false;
+        std::vector<std::string> extra_headers;
     };
 
     struct Route {

@@ -117,7 +117,9 @@ namespace zetla::providers {
                 [&](const std::string& chunk) {
                     parser.feed(chunk);
                 },
-                error
+                error,
+                false,
+                chat_route.defaults.extra_headers
             );
 
             if (!ok && !error.empty()) {
@@ -154,7 +156,9 @@ namespace zetla::providers {
                 [&](const std::string& chunk) {
                     parser.feed(chunk);
                 },
-                error
+                error,
+                false,
+                chat_route.defaults.extra_headers
             );
 
             if (!ok && !error.empty()) {
@@ -188,7 +192,8 @@ namespace zetla::providers {
             std::string response;
             std::string error;
 
-            bool ok = network::HttpClient::post_sync(url, sync_body, api_key, response, error);
+            bool ok = network::HttpClient::post_sync(url, sync_body, api_key, response, error, false,
+                chat_route.defaults.extra_headers);
             if (!ok) {
                 result.content = "Error: " + error;
                 result.finish_reason = "error";
