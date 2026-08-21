@@ -64,7 +64,7 @@ namespace zetla::providers {
             std::string url = models_route_.render_url("");
             std::string raw;
             std::string error;
-            bool ok = network::HttpClient::get_sync(url, api_key_, raw, error);
+            bool ok = network::HttpClient::get_sync(url, api_key_, raw, error, false, true);
             if (!ok) return "[]";
 
             auto j = zetla::json::try_parse(raw);

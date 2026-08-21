@@ -85,15 +85,15 @@ namespace zetla::protocols::openai_chat {
 
         if (request.generation.has_value()) {
             auto& gen = request.generation.value();
-            if (gen.temperature.has_value()) body["temperature"] = gen.temperature.value();
+            if (gen.temperature.has_value()) body["temperature"] = zetla::core::GenerationOptions::rounded(gen.temperature.value());
             if (gen.max_tokens.has_value()) body["max_tokens"] = gen.max_tokens.value();
-            if (gen.top_p.has_value()) body["top_p"] = gen.top_p.value();
+            if (gen.top_p.has_value()) body["top_p"] = zetla::core::GenerationOptions::rounded(gen.top_p.value());
             if (gen.top_k.has_value()) body["top_k"] = gen.top_k.value();
             if (gen.seed.has_value()) body["seed"] = gen.seed.value();
             if (gen.frequency_penalty.has_value() && defaults.supports_frequency_penalty)
-                body["frequency_penalty"] = gen.frequency_penalty.value();
+                body["frequency_penalty"] = zetla::core::GenerationOptions::rounded(gen.frequency_penalty.value());
             if (gen.presence_penalty.has_value() && defaults.supports_presence_penalty)
-                body["presence_penalty"] = gen.presence_penalty.value();
+                body["presence_penalty"] = zetla::core::GenerationOptions::rounded(gen.presence_penalty.value());
             if (gen.stop.has_value() && !gen.stop.value().empty()) {
                 body["stop"] = gen.stop.value();
             }

@@ -5,6 +5,7 @@
 #include <variant>
 #include <cstdint>
 #include <functional>
+#include <cmath>
 
 namespace zetla::core {
 
@@ -53,6 +54,12 @@ namespace zetla::core {
         std::optional<float> presence_penalty;
         std::optional<int> seed;
         std::optional<std::vector<std::string>> stop;
+
+        // float32 artifacts (0.7f -> 0.699999988079071) get some upstreams
+        // (opencode/Console) to reject the request; emit clean 2-decimal values.
+        static double rounded(float v) {
+            return std::round((double)v * 100.0) / 100.0;
+        }
 
         static GenerationOptions defaults() {
             GenerationOptions o;

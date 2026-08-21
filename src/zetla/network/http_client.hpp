@@ -5,6 +5,7 @@
 #include <curl/curl.h>
 #include <atomic>
 #include "../core/log.hpp"
+#include "proxy_config.hpp"
 
 namespace zetla::network {
 
@@ -78,7 +79,8 @@ namespace zetla::network {
             const std::string& api_key,
             std::string& response_out,
             std::string& error_out,
-            bool verify_ssl = false
+            bool verify_ssl = false,
+            bool use_proxy = false
         ) {
             CURL* curl = curl_easy_init();
             if (!curl) {
@@ -93,12 +95,16 @@ namespace zetla::network {
             }
             headers = curl_slist_append(headers, "Content-Type: application/json");
 
-            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+            std::string full_url = url;
+            apply_proxy(full_url, &headers);
+
+            curl_easy_setopt(curl, CURLOPT_URL, full_url.c_str());
             curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, sync_write_callback);
             curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_out);
             curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+            // Proxy cold start (Heroku dyno wake) can add several seconds.
+            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, use_proxy && ProxyState::active() ? 30L : 10L);
             curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
             if (!verify_ssl) {
@@ -131,7 +137,8 @@ namespace zetla::network {
             StreamCallback on_data,
             std::string& error_out,
             bool verify_ssl = false,
-            const std::vector<std::string>& extra_headers = {}
+            const std::vector<std::string>& extra_headers = {},
+            bool use_proxy = false
         ) {
             CURL* curl = curl_easy_init();
             if (!curl) {
@@ -157,6 +164,8 @@ namespace zetla::network {
             for (const auto& h : extra_headers) {
                 headers = curl_slist_append(headers, h.c_str());
             }
+
+            if (use_proxy) apply_proxy(full_url, &headers);
 
             curl_easy_setopt(curl, CURLOPT_URL, full_url.c_str());
             curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -215,7 +224,8 @@ namespace zetla::network {
             std::string& response_out,
             std::string& error_out,
             bool verify_ssl = false,
-            const std::vector<std::string>& extra_headers = {}
+            const std::vector<std::string>& extra_headers = {},
+            bool use_proxy = false
         ) {
             CURL* curl = curl_easy_init();
             if (!curl) {
@@ -240,7 +250,10 @@ namespace zetla::network {
                 headers = curl_slist_append(headers, h.c_str());
             }
 
-            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+            std::string full_url = url;
+            if (use_proxy) apply_proxy(full_url, &headers);
+
+            curl_easy_setopt(curl, CURLOPT_URL, full_url.c_str());
             curl_easy_setopt(curl, CURLOPT_POST, 1L);
             curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
             curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body.size());
@@ -298,6 +311,59 @@ namespace zetla::network {
 
     private:
         static inline std::atomic<bool> g_abort_flag{false};
+
+        // Rewrite `url` to point at the configured proxy and append the
+        // X-Target-Host / X-Proxy-Key headers. No-op unless a proxy is active.
+        // Only http/https URLs with default (or absent) ports are rewritten;
+        // anything else is logged and passed through unchanged so we never
+        // send an X-Target-Host the server-side validator would reject.
+        static void apply_proxy(std::string& url, struct curl_slist** headers) {
+            const ProxyConfig pc = ProxyState::get_config();
+            if (!pc.enabled || pc.url.empty() || url.empty()) return;
+
+            auto scheme_end = url.find("://");
+            if (scheme_end == std::string::npos || scheme_end == 0) {
+                ZLOGW("apply_proxy: URL without scheme, not proxied");
+                return;
+            }
+            std::string scheme = url.substr(0, scheme_end);
+            if (scheme != "http" && scheme != "https") {
+                ZLOGW("apply_proxy: unsupported scheme '%s', not proxied", scheme.c_str());
+                return;
+            }
+
+            std::string rest = url.substr(scheme_end + 3);
+            auto path_start = rest.find_first_of('/');
+            std::string hostport = path_start == std::string::npos ? rest : rest.substr(0, path_start);
+            std::string path_q = path_start == std::string::npos ? "/" : rest.substr(path_start);
+
+            auto at = hostport.rfind('@');
+            if (at != std::string::npos) hostport = hostport.substr(at + 1);
+
+            std::string target = hostport;
+            auto colon = target.rfind(':');
+            if (colon != std::string::npos) {
+                std::string port = target.substr(colon + 1);
+                bool default_port =
+                    (scheme == "https" && port == "443") ||
+                    (scheme == "http" && port == "80");
+                if (!default_port) {
+                    ZLOGW("apply_proxy: non-default port in '%s', not proxied", hostport.c_str());
+                    return;
+                }
+                target = target.substr(0, colon);
+            }
+
+            std::string proxy_url = pc.url;
+            if (!proxy_url.empty() && proxy_url.back() == '/') proxy_url.pop_back();
+
+            url = proxy_url + path_q;
+            std::string th = "X-Target-Host: " + target;
+            *headers = curl_slist_append(*headers, th.c_str());
+            std::string pk = "X-Proxy-Key: " + pc.secret;
+            *headers = curl_slist_append(*headers, pk.c_str());
+            ZLOGI("apply_proxy: %s -> %s (target=%s)", scheme.c_str(), proxy_url.c_str(), target.c_str());
+        }
 
         struct StreamCapture {
             StreamCallback* user_cb = nullptr;

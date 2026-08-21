@@ -63,6 +63,8 @@ ZETLA_API zetla_response zetla_get_provider_config(const char* provider_id);
 ZETLA_API zetla_response zetla_list_provider_configs(void);
 ZETLA_API zetla_response zetla_list_providers_models(void);
 
+ZETLA_API void zetla_set_proxy_config(const char* url, const char* secret, int enabled);
+
 ZETLA_API int zetla_set_session_web_search(const char* session_id, int enabled);
 ZETLA_API int zetla_set_session_rag(const char* session_id, int enabled);
 ZETLA_API void zetla_init_rag_model(const char* model_dir);

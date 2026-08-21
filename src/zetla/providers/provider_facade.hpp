@@ -119,7 +119,8 @@ namespace zetla::providers {
                 },
                 error,
                 false,
-                chat_route.defaults.extra_headers
+                chat_route.defaults.extra_headers,
+                true
             );
 
             if (!ok && !error.empty()) {
@@ -158,7 +159,8 @@ namespace zetla::providers {
                 },
                 error,
                 false,
-                chat_route.defaults.extra_headers
+                chat_route.defaults.extra_headers,
+                true
             );
 
             if (!ok && !error.empty()) {
@@ -193,7 +195,7 @@ namespace zetla::providers {
             std::string error;
 
             bool ok = network::HttpClient::post_sync(url, sync_body, api_key, response, error, false,
-                chat_route.defaults.extra_headers);
+                chat_route.defaults.extra_headers, true);
             if (!ok) {
                 result.content = "Error: " + error;
                 result.finish_reason = "error";

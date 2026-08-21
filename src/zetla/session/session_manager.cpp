@@ -64,9 +64,9 @@ namespace zetla::session {
 
         nlohmann::json opts_j;
         auto& gen = s.options.generation;
-        if (gen.temperature.has_value()) opts_j["temperature"] = gen.temperature.value();
+        if (gen.temperature.has_value()) opts_j["temperature"] = core::GenerationOptions::rounded(gen.temperature.value());
         if (gen.max_tokens.has_value()) opts_j["max_tokens"] = gen.max_tokens.value();
-        if (gen.top_p.has_value()) opts_j["top_p"] = gen.top_p.value();
+        if (gen.top_p.has_value()) opts_j["top_p"] = core::GenerationOptions::rounded(gen.top_p.value());
         if (gen.frequency_penalty.has_value()) opts_j["frequency_penalty"] = gen.frequency_penalty.value();
         if (gen.presence_penalty.has_value()) opts_j["presence_penalty"] = gen.presence_penalty.value();
         if (gen.seed.has_value()) opts_j["seed"] = gen.seed.value();

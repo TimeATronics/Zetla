@@ -80,7 +80,8 @@ namespace zetla::core {
                 },
                 error,
                 false,
-                chat_route_.defaults.extra_headers
+                chat_route_.defaults.extra_headers,
+                true
             );
 
             if (!ok) {
@@ -114,7 +115,8 @@ namespace zetla::core {
                 },
                 error,
                 false,
-                chat_route_.defaults.extra_headers
+                chat_route_.defaults.extra_headers,
+                true
             );
 
             if (!ok) {
@@ -146,7 +148,7 @@ namespace zetla::core {
             std::string error;
 
             bool ok = network::HttpClient::post_sync(url, sync_body, api_key, response, error, false,
-                chat_route_.defaults.extra_headers);
+                chat_route_.defaults.extra_headers, true);
             if (!ok) {
                 result.content = "Error: " + error;
                 result.finish_reason = "error";

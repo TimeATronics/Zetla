@@ -12,6 +12,7 @@
 #include "../search/exa_provider.hpp"
 #include "../rag/rag_tool.hpp"
 #include "../file_handlers/base/file_handler_factory.hpp"
+#include "../network/proxy_config.hpp"
 #include <cstring>
 #include <curl/curl.h>
 
@@ -175,9 +176,9 @@ ZETLA_API zetla_response zetla_get_default_options(void) {
     auto& cfg = zetla::core::get_config();
     auto& opts = cfg.default_options;
     json j;
-    if (opts.generation.temperature.has_value()) j["temperature"] = opts.generation.temperature.value();
+    if (opts.generation.temperature.has_value()) j["temperature"] = zetla::core::GenerationOptions::rounded(opts.generation.temperature.value());
     if (opts.generation.max_tokens.has_value()) j["max_tokens"] = opts.generation.max_tokens.value();
-    if (opts.generation.top_p.has_value()) j["top_p"] = opts.generation.top_p.value();
+    if (opts.generation.top_p.has_value()) j["top_p"] = zetla::core::GenerationOptions::rounded(opts.generation.top_p.value());
     if (opts.generation.frequency_penalty.has_value()) j["frequency_penalty"] = opts.generation.frequency_penalty.value();
     if (opts.generation.presence_penalty.has_value()) j["presence_penalty"] = opts.generation.presence_penalty.value();
     if (opts.generation.seed.has_value()) j["seed"] = opts.generation.seed.value();
@@ -214,6 +215,17 @@ ZETLA_API zetla_response zetla_get_system_prompt(void) {
     json j;
     j["system_prompt"] = cfg.system_prompt;
     return make_response(j.dump());
+}
+
+ZETLA_API void zetla_set_proxy_config(const char* url, const char* secret, int enabled) {
+    zetla::network::ProxyState::set(
+        url ? url : "",
+        secret ? secret : "",
+        enabled != 0);
+    ZLOGI("set_proxy_config: url=%s secret=%s enabled=%d",
+        url ? url : "null",
+        secret ? zetla::log::mask_key(secret).c_str() : "null",
+        enabled);
 }
 
 ZETLA_API void zetla_set_provider_config(const char* provider_id, const char* api_key, const char* base_url, int enabled) {
@@ -597,11 +609,11 @@ ZETLA_API zetla_response zetla_get_session_options(const char* session_id) {
 
     json j;
     j["session_id"] = sid;
-    if (opts.generation.temperature.has_value()) j["temperature"] = opts.generation.temperature.value();
+    if (opts.generation.temperature.has_value()) j["temperature"] = zetla::core::GenerationOptions::rounded(opts.generation.temperature.value());
     if (opts.generation.max_tokens.has_value()) j["max_tokens"] = opts.generation.max_tokens.value();
-    if (opts.generation.top_p.has_value()) j["top_p"] = opts.generation.top_p.value();
-    if (opts.generation.frequency_penalty.has_value()) j["frequency_penalty"] = opts.generation.frequency_penalty.value();
-    if (opts.generation.presence_penalty.has_value()) j["presence_penalty"] = opts.generation.presence_penalty.value();
+    if (opts.generation.top_p.has_value()) j["top_p"] = zetla::core::GenerationOptions::rounded(opts.generation.top_p.value());
+    if (opts.generation.frequency_penalty.has_value()) j["frequency_penalty"] = zetla::core::GenerationOptions::rounded(opts.generation.frequency_penalty.value());
+    if (opts.generation.presence_penalty.has_value()) j["presence_penalty"] = zetla::core::GenerationOptions::rounded(opts.generation.presence_penalty.value());
     if (opts.generation.seed.has_value()) j["seed"] = opts.generation.seed.value();
     for (auto& [k, v] : opts.provider_options) j[k] = v;
 
